@@ -1,0 +1,73 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: centralgpt_app
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - QDRANT_URL=http://qdrantdb:6333
+      - ENV_FILE=.env
+    depends_on:
+      - redis
+      - qdrantdb
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: centralgpt_celery
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - QDRANT_URL=http://qdrantdb:6333
+      - ENV_FILE=.env
+    depends_on:
+      - redis
+      - qdrantdb
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
+    command: celery -A src.service.background.worker.queue worker --loglevel=info --concurrency=2
+
+  qdrantdb:
+    image: qdrant/qdrant
+    container_name: qdrantdb
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:6.2-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  qdrant_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
