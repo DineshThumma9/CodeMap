@@ -14,7 +14,7 @@ from qdrant_client.models import PointStruct
 from tree_sitter import Parser, Query, QueryCursor
 from tree_sitter_language_pack import ProcessConfig, detect_language_from_path, process
 
-from src.db.graphdb import get_async_graph, get_graph
+from src.db.graphdb import get_graph
 from src.db.vectordb import vector_db
 from src.models.code_schema import (
     FileParseResult,
@@ -50,10 +50,8 @@ class CodePipeline:
         self.kb_id: str = kb_id
         self.branch = branch
 
-        self.graph = get_graph()
-        self.driver = self.graph._driver
+        self.graph = get_graph(kb_id)
         self.vector_db = vector_db
-        self.async_neo4j = get_async_graph()
 
         self.project_files = []
         self.processed_code = []
@@ -420,60 +418,95 @@ class CodePipeline:
         all_relations = filtered_relations
 
         if not all_entites or not all_relations:
-            logger.warning("[graph] No entities or relations to write — skipping Neo4j")
+            logger.warning("[graph] No entities or relations to write — skipping FalkorDB")
             return
 
         logger.info(
-            f"[graph] Writing {len(all_entites)} entities and {len(all_relations)} relations to Neo4j..."
+            f"[graph] Writing {len(all_entites)} entities and {len(all_relations)} relations to FalkorDB..."
         )
 
-        with self.driver.session() as session:
-            session.run(
-                "CREATE INDEX node_id_index IF NOT EXISTS FOR (n:CodeNode) ON (n.id)"
-            )
-            session.run(
-                "CREATE INDEX node_ns_index IF NOT EXISTS FOR (n:CodeNode) ON (n.ns)"
-            )
-            session.run(
-                "CREATE INDEX node_id_ns_index IF NOT EXISTS FOR (n:CodeNode) ON (n.id, n.ns)"
-            )
+        try:
+            self.graph.query("CREATE INDEX FOR (n:CodeNode) ON (n.id)")
+        except Exception:
+            pass
 
-            with session.begin_transaction() as tx:
-                tx.run(
-                    """
-                        UNWIND $batch as entity
-                        MERGE (n:CodeNode {id:entity.node_id, ns:$ns})
-                        ON CREATE SET
-                         n.name = entity.name,
-                         n.kind = entity.kind
+        try:
+            self.graph.query("CREATE FULLTEXT INDEX FOR (n:CodeNode) ON (n.name)")
+        except Exception:
+            pass
+
+        self.graph.query(
+            """
+                UNWIND $batch as entity
+                MERGE (n:CodeNode {id:entity.node_id})
+                ON CREATE SET
+                    n.name = entity.name,
+                    n.kind = entity.kind
+            """,
+            {"batch": all_entites},
+        )
+
+        # Insert all relations grouped by type
+        for rel_type in ["CONTAINS", "CALLS", "IMPORTS", "HAS_METHOD"]:
+            specific_rel = [
+                r for r in all_relations if r["rel_type"] == rel_type
+            ]
+            if specific_rel:
+                self.graph.query(
+                    f"""
+                    UNWIND $batch as rel
+                    MERGE (source:CodeNode {{id:rel.source_id}})
+                    MERGE (target:CodeNode {{id:rel.target_id}})
+                    MERGE (source)-[r:{rel_type}]->(target)
+                    SET r += rel.properties
                     """,
-                    batch=all_entites,
-                    ns=self.kb_id,
+                    {"batch": specific_rel},
                 )
 
-                # Insert all relations grouped by type
-                for rel_type in ["CONTAINS", "CALLS", "IMPORTS", "HAS_METHOD"]:
-                    specific_rel = [
-                        r for r in all_relations if r["rel_type"] == rel_type
-                    ]
-                    if specific_rel:
-                        tx.run(
-                            f"""
-                           UNWIND $batch as rel
-                           MERGE (source:CodeNode {{id:rel.source_id, ns:$ns}})
-                           MERGE (target:CodeNode {{id:rel.target_id, ns:$ns}})
-                           MERGE (source)-[r:{rel_type}]->(target)
-                           SET r += rel.properties
-                           """,
-                            batch=specific_rel,
-                            ns=self.kb_id,
-                        )
+        logger.info(f"[graph] FalkorDB write complete in {time.time() - t0:.2f}s")
 
-        logger.info(f"[graph] Neo4j write complete in {time.time() - t0:.2f}s")
+        # Offline GraphBLAS Algorithm Enrichment
+        try:
+            t_algo = time.time()
+            logger.info(f"[graph] Running FalkorDB GraphBLAS matrix algorithms to enrich graph '{self.kb_id}'...")
+            
+            # 1. PageRank (Utility / Authority score)
+            self.graph.query("""
+                CALL algo.pageRank('CodeNode', 'CALLS') YIELD node, score
+                SET node.pagerank = score
+            """)
+            
+            # 2. Harmonic Centrality (Root Orchestrator / Entrypoint reachability)
+            self.graph.query("""
+                CALL algo.HarmonicCentrality() YIELD node, score
+                SET node.harmonic = score
+            """)
+            
+            # 3. Betweenness Centrality (Bridge / Chokepoint score)
+            self.graph.query("""
+                CALL algo.betweenness() YIELD node, score
+                SET node.betweenness = score
+            """)
+            
+            # 4. CDLP (Community / Subsystem domain discovery)
+            self.graph.query("""
+                CALL algo.labelPropagation() YIELD node, communityId
+                SET node.community_id = communityId
+            """)
+            
+            # 5. WCC (Weakly Connected Components / Dead code islands)
+            self.graph.query("""
+                CALL algo.WCC() YIELD node, componentId
+                SET node.wcc_id = componentId
+            """)
+            
+            logger.info(f"[graph] GraphBLAS enrichment completed in {time.time() - t_algo:.2f}s")
+        except Exception as e:
+            logger.warning(f"[graph] GraphBLAS enrichment encountered warning (skipped): {e}")
 
     def build_kb(self):
         """
-        Clones, parses, and writes all code data to Qdrant + Neo4j in parallel.
+        Clones, parses, and writes all code data to Qdrant + FalkorDB in parallel.
         """
         total_start = time.time()
         logger.info(

@@ -29,7 +29,7 @@ config = context.config
 settings = Settings()
 
 _url = make_url(settings.database_url).set(drivername="postgresql+psycopg")
-config.set_main_option("sqlalchemy.url", str(_url))
+config.set_main_option("sqlalchemy.url", _url.render_as_string(hide_password=False))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

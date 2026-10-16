@@ -70,6 +70,9 @@ else:
 async def lifespan(app: FastAPI):
     # 1. Init engines and create tables — must be first
     _init_db()
+    from sqlmodel import SQLModel
+    from src.models import models
+    SQLModel.metadata.create_all(dbs.engine)
 
     # 2. Warm up the async connection pool so the first real request
     #    doesn't pay the TCP handshake + pool-init cost (~500ms)
@@ -87,9 +90,9 @@ async def lifespan(app: FastAPI):
 
     try:
         init_graph()
-        logger.info("Neo4j initialized")
+        logger.info("FalkorDB initialized")
     except Exception as e:
-        logger.error(f"Failed to initialize Neo4j: {e}")
+        logger.error(f"Failed to initialize FalkorDB: {e}")
 
     try:
         init_redis()
@@ -107,7 +110,7 @@ async def lifespan(app: FastAPI):
     yield
 
     await close_checkpointer()
-    close_graph()
+    await close_graph()
     await close_redis()
     await close_http_client()
 

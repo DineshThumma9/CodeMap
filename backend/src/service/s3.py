@@ -11,7 +11,12 @@ from src.config.settings import settings
 
 class S3Service:
     def __init__(self):
-        self.client = boto3.client("s3", region_name=settings.aws_region)
+        self.client = boto3.client(
+            "s3",
+            region_name=settings.aws_region,
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID") or "dummy",
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY") or "dummy",
+        )
         self.bucket = settings.aws_bucket
 
     async def upload_file_to_s3(self, file: UploadFile, kb_id: str) -> str:

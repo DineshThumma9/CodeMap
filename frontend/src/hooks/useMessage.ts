@@ -25,7 +25,7 @@ const docSchema = z.object({
 
 type Doc = z.infer<typeof docSchema>;
 
-const API_BASE_URL = import.meta.env.VITE_API_URI;
+import { API_BASE_URL } from "../api/apiInstance";
 
 const useMessage = () => {
   const eventSourceRef = useRef<EventSource | null>(null);

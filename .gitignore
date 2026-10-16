@@ -84,3 +84,13 @@ backend/locustfile.py
 runs/
 backend/src/service/pipelines/code/scip/generate_scip.sh
 backend/src/service/pipelines/code/scip/scip.proto
+
+
+ARCHITECTURAL_LIMITATIONS_AND_HOLES.md
+INTERVIEW_ANSWERS.md
+INTERVIEW_QUESTIONS.md
+blog.md
+context.md
+plan.md
+.gitignore 
+gitignore 

@@ -7,20 +7,60 @@ from langchain.agents.middleware import (
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
 from langchain_groq import ChatGroq
+from loguru import logger
 
 from src.config.settings import settings
 from src.models.enums import ThinkingLevel
 from src.service.agent.prompts import summarization_prompt
 
+GRAPH_TOOL_NAMES = {
+    "get_project_context",
+    "explore_codebase",
+    "search_syntax",
+    "trace_call_graph",
+    "ask_architecture",
+    "trace_execution_path",
+    "analyze_code_graph",
+}
+
 
 @wrap_tool_call
 async def handle_tool_errors(request, handler):
+    tool_call = getattr(request, "tool_call", {}) or {}
+    tool_name = tool_call.get("name", "unknown")
+    tool_args = tool_call.get("args", {})
+    call_id = tool_call.get("id", "")
+
+    is_graph_tool = (
+        tool_name in GRAPH_TOOL_NAMES
+        or "graph" in tool_name.lower()
+        or "cypher" in tool_name.lower()
+    )
+
+    if is_graph_tool:
+        logger.info(
+            f"🕸️ [GRAPH TOOL INVOKED] Agent called '{tool_name}' with args: {tool_args}"
+        )
+    else:
+        logger.info(
+            f"🔧 [TOOL INVOKED] Agent called '{tool_name}' with args: {tool_args}"
+        )
+
     try:
-        return await handler(request)
+        response = await handler(request)
+        if is_graph_tool:
+            logger.info(f"✅ [GRAPH TOOL FINISHED] '{tool_name}' executed successfully")
+        return response
     except Exception as error:
+        if is_graph_tool:
+            logger.error(
+                f"❌ [GRAPH TOOL ERROR] '{tool_name}' failed with error: {error}"
+            )
+        else:
+            logger.error(f"❌ [TOOL ERROR] '{tool_name}' failed with error: {error}")
         return ToolMessage(
             content=f"Error: {str(error)}",
-            tool_call_id=request.tool_call["id"],
+            tool_call_id=call_id,
             status="error",
         )
 
@@ -102,7 +142,9 @@ def middleware_setup(thinking_level: ThinkingLevel = ThinkingLevel.MEDIUM):
 
     thinking_config = thinking_level.value
     summarization = SummarizationMiddleware(
-        model=ChatGroq(model=settings.summarization_llm),
+        model=ChatGroq(
+            model=settings.summarization_llm, api_key=settings.groq_api_key
+        ),
         trigger=[
             ("messages", thinking_config.message_limit),
             ("tokens", thinking_config.token_limit),

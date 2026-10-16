@@ -3,10 +3,10 @@ from qdrant_client.http import models as rest_models
 
 from src.db.graphdb import get_graph
 from src.db.vectordb import COLLECTION, COLLECTION_CODE, _get_sync_client
+from uuid import UUID
 
-
-def wipe_kb_data(kb_id: str) -> None:
-    """Remove all stored data for a given kb_id from Qdrant and Neo4j.
+def wipe_kb_data(kb_id: UUID) -> None:
+    """Remove all stored data for a given kb_id from Qdrant and FalkorDB.
 
     Safe to call at the start of an ingest task to make re-ingestion idempotent.
     Used both for crash recovery (worker died mid-task) and for normal
@@ -32,12 +32,7 @@ def wipe_kb_data(kb_id: str) -> None:
             logger.warning(f"Qdrant wipe failed for {collection} kb={ns}: {e}")
 
     try:
-        graph = get_graph()
-        driver = graph._driver
-        with driver.session() as session:
-            session.run(
-                "MATCH (n {ns: $ns}) DETACH DELETE n",
-                ns=ns,
-            )
+        graph = get_graph(kb_id)
+        graph.delete()
     except Exception as e:
-        logger.warning(f"Neo4j wipe failed kb={ns}: {e}")
+        logger.warning(f"FalkorDB wipe failed kb={ns}: {e}")

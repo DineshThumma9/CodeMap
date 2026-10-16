@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import mermaid from "mermaid";
 import sessionStore from "../store/sessionStore.ts";
 import "highlight.js/styles/github-dark.css";
+
+mermaid.initialize({
+  startOnLoad: false,
+  suppressErrorRendering: true,
+  theme: "dark",
+  securityLevel: "loose",
+});
 import RagStatusMessage from "./RagStatusMessage.tsx";
 import {
   Conversation,
@@ -178,6 +186,138 @@ const MarkdownSnippet = ({
   );
 };
 
+const DIAGRAM_KEYWORDS = [
+  "graph",
+  "flowchart",
+  "sequencediagram",
+  "classdiagram",
+  "statediagram",
+  "erdiagram",
+  "gantt",
+  "pie",
+  "gitgraph",
+  "journey",
+  "mindmap",
+  "timeline",
+  "quadrantchart",
+  "sankey",
+  "xychart",
+  "block",
+];
+
+const sanitizeMermaid = (raw: string): string => {
+  let text = raw.trim();
+  if (!text) return "";
+
+  const firstWord = text.split(/[\s\n]+/)[0]?.toLowerCase() || "";
+  const startsWithKeyword = DIAGRAM_KEYWORDS.some((kw) =>
+    firstWord.startsWith(kw)
+  );
+
+  if (!startsWithKeyword) {
+    text = `graph TD\n${text}`;
+  }
+
+  // Auto-quote unquoted bracket labels containing parentheses, colons, or slashes
+  text = text.replace(/([a-zA-Z0-9_-]+)\[([^"\]]+)\]/g, (_, id, label) => {
+    if (
+      label.includes("(") ||
+      label.includes(")") ||
+      label.includes("/") ||
+      label.includes(":")
+    ) {
+      const clean = label.replace(/"/g, "'");
+      return `${id}["${clean}"]`;
+    }
+    return `${id}[${label}]`;
+  });
+
+  return text;
+};
+
+const MarkdownMermaid = ({ chart }: { chart: string }) => {
+  const [svg, setSvg] = useState<string>("");
+  const [isValid, setIsValid] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Purge any lingering error elements that Mermaid may have left on body
+    if (typeof document !== "undefined") {
+      document
+        .querySelectorAll(
+          'body > [id^="dmermaid"], body > [id^="mermaid-"], body > .mermaid-error, body > [aria-roledescription="error"]'
+        )
+        .forEach((el) => {
+          try {
+            el.remove();
+          } catch (_) {}
+        });
+    }
+
+    let isMounted = true;
+    const cleanChart = sanitizeMermaid(chart);
+    if (!cleanChart) {
+      setIsValid(false);
+      return;
+    }
+
+    const renderChart = async () => {
+      try {
+        const parseResult = await mermaid.parse(cleanChart, {
+          suppressErrors: true,
+        });
+        if (!parseResult) {
+          if (isMounted) setIsValid(false);
+          return;
+        }
+
+        const id = `mermaid-${Math.random().toString(36).substring(2, 9)}`;
+        const { svg: renderedSvg } = await mermaid.render(id, cleanChart);
+        if (isMounted) {
+          setSvg(renderedSvg);
+          setIsValid(true);
+        }
+      } catch {
+        if (isMounted) {
+          setIsValid(false);
+        }
+      } finally {
+        if (typeof document !== "undefined") {
+          document
+            .querySelectorAll(
+              'body > [id^="dmermaid"], body > [id^="mermaid-"], body > .mermaid-error, body > [aria-roledescription="error"]'
+            )
+            .forEach((el) => {
+              try {
+                el.remove();
+              } catch (_) {}
+            });
+        }
+      }
+    };
+
+    const timer = setTimeout(renderChart, 150);
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [chart]);
+
+  if (!isValid || !svg) {
+    return (
+      <CodeBlock code={chart} language="mermaid" className="my-4">
+        <CodeBlockCopyButton />
+      </CodeBlock>
+    );
+  }
+
+  return (
+    <div
+      className="my-4 p-4 rounded-lg bg-card border border-border overflow-x-auto flex justify-center [&_svg]:max-w-full [&_svg]:h-auto"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+};
+
 /**
  * Renders inline citations for markdown links whose href starts with "cite:".
  * e.g. [some text](cite:https://source1.com,https://source2.com)
@@ -334,6 +474,9 @@ const markdownComponents = {
 
     if (isBlock) {
       const language = match ? match[1] : "text";
+      if (language === "mermaid") {
+        return <MarkdownMermaid chart={codeString} />;
+      }
       if (language === "file-tree" || language === "filetree") {
         return <MarkdownFileTree text={codeString} />;
       }

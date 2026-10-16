@@ -71,12 +71,15 @@ def celery_worker_init(*args, **kwargs):
     asyncio.run(init_qdrant())
 
     sentry_dsn = settings.sentry_dsn
-    if sentry_dsn:
-        from sentry_sdk.integrations.celery import CeleryIntegration
+    if sentry_dsn and sentry_dsn.startswith("http"):
+        try:
+            from sentry_sdk.integrations.celery import CeleryIntegration
 
-        sentry_sdk.init(
-            dsn=sentry_dsn,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
-            integrations=[CeleryIntegration()],
-        )
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                traces_sample_rate=1.0,
+                profiles_sample_rate=1.0,
+                integrations=[CeleryIntegration()],
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize Sentry in worker: {e}")

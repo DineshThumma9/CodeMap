@@ -249,16 +249,20 @@ class ScipIndexer:
                                 s.replace(proj_h, "/src").replace(out_h, "/out")
                             )
                     internal_cmd = mapped
-                else:
+                elif lang in ("typescript", "javascript"):
+                    # sourcegraph/scip-typescript image has scip-typescript as its entrypoint;
+                    # strip the binary name (first element) since it's the entrypoint.
+                    if internal_cmd and internal_cmd[0] in ("scip-typescript", binary):
+                        internal_cmd = internal_cmd[1:]
+
+                # Map host paths to container mounts (/src and /out) for generic indexers
+                if lang not in ("go", "dart", "cpp", "c") and internal_cmd:
                     proj_h = str(project_path.resolve())
                     out_h = str(output_dir.resolve())
                     proj_h_un = str(project_path)
                     out_h_un = str(output_dir)
                     out_f = str(output_file)
                     out_f_res = str(output_file.resolve())
-                    logger.info(
-                        f"MAPPING ARGS! proj_h={proj_h}, out_h={out_h}, internal_cmd={internal_cmd}"
-                    )
                     new_internal = []
                     for a in internal_cmd:
                         s = str(a)
@@ -271,7 +275,6 @@ class ScipIndexer:
                         s = s.replace(out_h_un, "/out")
                         new_internal.append(s)
                     internal_cmd = new_internal
-                    logger.info(f"MAPPED ARGS: {internal_cmd}")
 
                 docker_cmd.extend(internal_cmd)
 
@@ -297,7 +300,7 @@ class ScipIndexer:
                         )
                         return output_file
                 logger.error(
-                    f"Docker SCIP indexing failed (code {result.returncode}). stderr: {result.stderr[:500]}"
+                    f"Docker SCIP indexing failed (code {result.returncode}).\nstderr: {result.stderr[-1000:] if result.stderr else ''}\nstdout: {result.stdout[-1000:] if result.stdout else ''}"
                 )
             except Exception as e:
                 logger.error(f"Docker SCIP indexing failed: {e}")
@@ -422,7 +425,17 @@ class ScipIndexer:
         out = str(output_file)
 
         if lang == "python":
-            return [binary, "index", ".", "--output", out]
+            proj_name = project_path.name or "project"
+            return [
+                binary,
+                "index",
+                "--project-name",
+                proj_name,
+                "--project-version",
+                "0.1.0",
+                "--output",
+                out,
+            ]
 
         elif lang == "typescript":
             return [binary, "index", "--output", out]

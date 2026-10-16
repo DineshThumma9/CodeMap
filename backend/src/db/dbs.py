@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from loguru import logger
@@ -78,6 +78,17 @@ async def get_db():
         except Exception as e:
             await session.rollback()
             logger.error(f"Database error: {e}")
+            raise
+
+
+@asynccontextmanager
+async def get_async_session():
+    _init_db()
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
             raise
 
 

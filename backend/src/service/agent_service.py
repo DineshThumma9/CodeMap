@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.dbs import get_checkpointer
-from src.db.graphdb import get_async_graph, get_graph
+from src.db.graphdb import get_async_graph, get_graph, get_langchain_graph
 from src.db.vectordb import get_user_vector_db
 from src.models.models import KnowledgeBase, Session, User, UserLLMConfig
 from src.service.agent.middleware import middleware_setup
@@ -47,7 +47,7 @@ class AgentService:
 
         if config.provider == "huggingface":
             hf_llm = HuggingFaceEndpoint(
-                repo_id=config.model,
+                model=config.model,
                 huggingfacehub_api_token=decrypted_key,
                 task="text-generation",
                 max_new_tokens=5162,
@@ -105,19 +105,22 @@ class AgentService:
             session_title_gen.delay(msg, str(self.session_id), str(self.user.userid))
 
         vector_db = None
-        graph_obj_instance = None
+        async_graph_instance = None
+        langchain_graph_instance = None
 
         if ns:
             vector_db = get_user_vector_db(ns, source_type)
-            graph_obj_instance = get_graph()
+            async_graph_instance = get_async_graph(ns)
+            if source_type and source_type.upper() == "GITHUB":
+                langchain_graph_instance = get_langchain_graph(ns)
 
         llm = await self.get_llm_instance()
         tools_instance = await Tools.build(
             user_id=self.user.userid,
             vector_db=vector_db,
-            neo4j_ns=ns,
-            graph_obj=graph_obj_instance,
-            async_neo4j=get_async_graph(),
+            falkordb_ns=ns,
+            graph_obj=langchain_graph_instance,
+            async_falkordb=async_graph_instance,
             llm=llm,
             mcp_enabled=mcp_enabled,
             kb_type=source_type,

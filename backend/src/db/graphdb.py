@@ -1,54 +1,71 @@
-from langchain_neo4j import Neo4jGraph
-from neo4j import AsyncGraphDatabase as AsyncNeo4jDriver
+from typing import Optional, Union
+import urllib.parse
+from uuid import UUID
+from loguru import logger
+from langchain_falkordb import FalkorDBGraph
+from falkordb.asyncio import FalkorDB as AsyncFalkorDB
+from falkordb import FalkorDB
 
 from src.config.settings import settings
 
-_graph = None
+_sync_driver: Optional[FalkorDB] = None
+_async_driver: Optional[AsyncFalkorDB] = None
 
 
-def init_graph(force_reconnect=False):
-    global _graph
-    if _graph is None or force_reconnect:
-        _graph = Neo4jGraph(
-            url=settings.neo4j_url,
-            username=settings.neo4j_user,
-            password=settings.neo4j_password,
-            database=settings.neo4j_database,
-            driver_config={
-                "max_connection_lifetime": 200,
-                "keep_alive": True,
-            },
-        )
-        try:
-            _graph.query(
-                "CREATE FULLTEXT INDEX code_search_index IF NOT EXISTS FOR (n:CodeNode) ON EACH [n.name, n.kind]"
-            )
-        except Exception:
-            pass
-    return _graph
+def init_graph(force_reconnect: bool = False) -> FalkorDB:
+    global _sync_driver
+    if _sync_driver is None or force_reconnect:
+        _sync_driver = FalkorDB.from_url(settings.falkordb_url)
+    return _sync_driver
 
 
-def get_graph():
-    global _graph
-    if _graph is None:
+def get_graph(graph_id: Optional[Union[UUID, str]] = None):
+    global _sync_driver
+    if _sync_driver is None:
         init_graph()
-    return _graph
+    return _sync_driver.select_graph(str(graph_id)) if graph_id is not None else _sync_driver
 
 
-def close_graph():
-    global _graph
-    if _graph is not None:
-        _graph.close()
-        _graph = None
+def init_async_graph(force_reconnect: bool = False) -> AsyncFalkorDB:
+    global _async_driver
+    if _async_driver is None or force_reconnect:
+        _async_driver = AsyncFalkorDB.from_url(settings.falkordb_url)
+    return _async_driver
 
 
-_async_driver = None
-
-
-def get_async_graph():
+def get_async_graph(graph_id: Optional[Union[UUID, str]] = None):
     global _async_driver
     if _async_driver is None:
-        _async_driver = AsyncNeo4jDriver.driver(
-            uri=settings.neo4j_url, auth=(settings.neo4j_user, settings.neo4j_password)
+        init_async_graph()
+    return _async_driver.select_graph(str(graph_id)) if graph_id is not None else _async_driver
+
+
+def get_langchain_graph(graph_id: Optional[Union[UUID, str]] = None) -> Optional[FalkorDBGraph]:
+    if graph_id is None:
+        return None
+    parsed = urllib.parse.urlparse(settings.falkordb_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 6379
+    try:
+        return FalkorDBGraph(
+            database=str(graph_id),
+            host=host,
+            port=port,
+            username=parsed.username,
+            password=parsed.password,
         )
-    return _async_driver
+    except Exception as e:
+        logger.warning(f"Could not initialize FalkorDBGraph for {graph_id}: {e}")
+        return None
+
+
+async def close_graph():
+    global _sync_driver, _async_driver
+    if _sync_driver is not None:
+        _sync_driver.close()
+        _sync_driver = None
+    if _async_driver is not None:
+        await _async_driver.aclose()
+        _async_driver = None
+
+

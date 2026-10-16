@@ -18,19 +18,13 @@ class Settings(BaseSettings):
     vector_dim: int = 768
     database_url: str
 
-    @field_validator("database_url", mode="before")
-    @classmethod
-    def normalize_db_url(cls, v: str) -> str:
-        return v.replace("postgres://", "postgresql://", 1)
+    falkordb_url: str
+    falkordb_user: str
 
-    neo4j_url: str
-    neo4j_user: str
-    neo4j_password: str
-    neo4j_database: str
-    qa_llm: str
-    cypher_llm: str
-    title_llm: str
-    summarization_llm: str
+    qa_llm: str =  "qwen/qwen3.8-27b"
+    cypher_llm: str =  "qwen/qwen3.8-27b"
+    title_llm: str = "qwen/qwen3.8-27b"
+    summarization_llm: str = "qwen/qwen3.8-27b"
     sentry_dsn: str
     redis_url: str
     fernet_key: str
@@ -64,6 +58,10 @@ class Settings(BaseSettings):
     db_pool_recycle: int = 300
     db_checkpointer_pool_size: int = 5
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_db_url(cls, v: str) -> str:
+        return v.replace("postgres://", "postgresql://", 1)
 
 @lru_cache()
 def get_settings() -> Settings:

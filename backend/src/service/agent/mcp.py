@@ -8,7 +8,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
 from sqlalchemy import select
 
-from src.db.dbs import AsyncSessionLocal, _init_db
+from src.db.dbs import get_async_session
 from src.db.redisdb import aredis as redis_client
 from src.models.models import UserMCPConfig
 from src.service.crypto import CryptoService
@@ -78,8 +78,7 @@ class MCPService:
                 f"Retrieved MCP configs from Redis in {time.time() - start:.2f}s"
             )
         else:
-            _init_db()
-            async with AsyncSessionLocal() as db:
+            async with get_async_session() as db:
                 stmt = select(UserMCPConfig).where(
                     UserMCPConfig.user_id == self.user_id
                 )

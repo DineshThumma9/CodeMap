@@ -5,7 +5,7 @@ import useSessionStore from "../store/sessionStore";
 import useInitStore from "../store/initStore";
 import useValidationStore from "../store/validationStore";
 
-export const API_BASE_URL = import.meta.env.VITE_API_URI;
+export const API_BASE_URL = "http://localhost:8000";
 
 import { toast } from "sonner";
 

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -253,12 +253,14 @@ dependencies = [
     { name = "cohere" },
     { name = "cryptography" },
     { name = "ddgs" },
+    { name = "falkordb" },
     { name = "fastapi" },
     { name = "google-generativeai" },
     { name = "gunicorn" },
     { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-community" },
+    { name = "langchain-falkordb" },
     { name = "langchain-google-genai" },
     { name = "langchain-groq" },
     { name = "langchain-huggingface" },
@@ -324,12 +326,14 @@ requires-dist = [
     { name = "cohere" },
     { name = "cryptography", specifier = ">=44.0.0" },
     { name = "ddgs", specifier = ">=9.14.4" },
+    { name = "falkordb", specifier = ">=1.7.1" },
     { name = "fastapi", specifier = ">=0.115.12" },
     { name = "google-generativeai" },
     { name = "gunicorn", specifier = ">=26.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "langchain" },
     { name = "langchain-community", specifier = ">=0.4.1" },
+    { name = "langchain-falkordb", specifier = ">=0.2.0" },
     { name = "langchain-google-genai", specifier = ">=4.2.2" },
     { name = "langchain-groq", specifier = ">=1.1.2" },
     { name = "langchain-huggingface", specifier = ">=1.2.2" },
@@ -1061,6 +1065,19 @@ wheels = [
 ]
 
 [[package]]
+name = "falkordb"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+    { name = "redis" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/d3/799a947869d9b8dd4cfcc6dc9654869874b1130375a78033b5a92362dc67/falkordb-1.7.1.tar.gz", hash = "sha256:09dd89dfb668c6fe7741c0ec67fcdb5c7a4b009e87f065a644199170f4fa5766", size = 121375, upload-time = "2026-08-13T13:17:39.652Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/43/41967fad8b625e2b319e03a1c8897535dd1e05723a051342422b48b870da/falkordb-1.7.1-py3-none-any.whl", hash = "sha256:0e62d535edd5abf7b6d35e2493fba71118734313436ff803fcd5d1b20e9e2194", size = 38283, upload-time = "2026-08-13T13:17:38.257Z" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.136.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1152,7 +1169,7 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "fastmcp-slim", version = "3.4.0", source = { registry = "https://pypi.org/simple" }, extra = ["client", "server"], marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "fastmcp-slim", version = "3.4.0", source = { registry = "https://pypi.org/simple" }, extra = ["client", "server"] },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/64/24/519739e98daf92ebc64580e9d3320649bf9a1612c029a913dd88c3474d73/fastmcp-3.4.0.tar.gz", hash = "sha256:29055fb6816f4862c615aabaf0112ae8feb8b469740db13403a0ce5b799ec1dc", size = 28754939, upload-time = "2026-06-03T02:32:40.206Z" }
 wheels = [
@@ -1167,7 +1184,7 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "fastmcp-slim", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, extra = ["client", "server"], marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "fastmcp-slim", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, extra = ["client", "server"] },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/29/18/46beaec18c9f86a599ae3f9cdf6677dd6b50240cfd844d18233710b47f13/fastmcp-3.4.2.tar.gz", hash = "sha256:b468722946fc467c3796a6572f7a14d93d48c014cf8fea12910245220cbbe4e1", size = 28756849, upload-time = "2026-06-06T01:30:35.694Z" }
 wheels = [
@@ -1189,12 +1206,12 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "platformdirs", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pydantic", extra = ["email"], marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pydantic-settings", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "python-dotenv", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "rich", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "platformdirs" },
+    { name = "pydantic", extra = ["email"] },
+    { name = "pydantic-settings" },
+    { name = "python-dotenv" },
+    { name = "rich" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e7/b0/4da6078c2d6aa0a38a8b1ae0271e1ed400f9e2cd1b3b46e6453fb1fe2b75/fastmcp_slim-3.4.0.tar.gz", hash = "sha256:faa0ccf16e85ec4b9f79c006fed3546b866d7e6dba3f60cd32cd98e84753a496", size = 575895, upload-time = "2026-06-03T02:32:18.744Z" }
 wheels = [
@@ -1203,34 +1220,34 @@ wheels = [
 
 [package.optional-dependencies]
 client = [
-    { name = "authlib", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "exceptiongroup", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "httpx", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "mcp", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "opentelemetry-api", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"], marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "authlib" },
+    { name = "exceptiongroup" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "opentelemetry-api" },
+    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"] },
 ]
 server = [
-    { name = "authlib", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "cyclopts", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "exceptiongroup", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "griffelib", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "httpx", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "joserfc", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "jsonref", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "jsonschema-path", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "mcp", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "openapi-pydantic", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "opentelemetry-api", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "packaging", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"], marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pyperclip", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "python-multipart", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "pyyaml", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "uncalled-for", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "uvicorn", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "watchfiles", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
-    { name = "websockets", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "authlib" },
+    { name = "cyclopts" },
+    { name = "exceptiongroup" },
+    { name = "griffelib" },
+    { name = "httpx" },
+    { name = "joserfc" },
+    { name = "jsonref" },
+    { name = "jsonschema-path" },
+    { name = "mcp" },
+    { name = "openapi-pydantic" },
+    { name = "opentelemetry-api" },
+    { name = "packaging" },
+    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"] },
+    { name = "pyperclip" },
+    { name = "python-multipart" },
+    { name = "pyyaml" },
+    { name = "uncalled-for" },
+    { name = "uvicorn" },
+    { name = "watchfiles" },
+    { name = "websockets" },
 ]
 
 [[package]]
@@ -1241,12 +1258,12 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "platformdirs", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "pydantic", extra = ["email"], marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "pydantic-settings", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "python-dotenv", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "rich", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "platformdirs" },
+    { name = "pydantic", extra = ["email"] },
+    { name = "pydantic-settings" },
+    { name = "python-dotenv" },
+    { name = "rich" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a3/2e/d627b28b7403ecc526991ef732921b08bde010006e6148635f053fd29f4c/fastmcp_slim-3.4.2.tar.gz", hash = "sha256:290646e0955a516235a317151034559aa48336cb843d3f006131aedad8759bb4", size = 576291, upload-time = "2026-06-06T01:30:12.553Z" }
 wheels = [
@@ -1255,36 +1272,36 @@ wheels = [
 
 [package.optional-dependencies]
 client = [
-    { name = "authlib", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "exceptiongroup", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "httpx", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "mcp", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "opentelemetry-api", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"], marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "starlette", version = "1.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "authlib" },
+    { name = "exceptiongroup" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "opentelemetry-api" },
+    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"] },
+    { name = "starlette", version = "1.3.1", source = { registry = "https://pypi.org/simple" } },
 ]
 server = [
-    { name = "authlib", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "cyclopts", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "exceptiongroup", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "griffelib", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "httpx", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "joserfc", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "jsonref", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "jsonschema-path", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "mcp", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "openapi-pydantic", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "opentelemetry-api", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "packaging", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"], marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "pyperclip", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "python-multipart", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "pyyaml", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "starlette", version = "1.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "uncalled-for", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "uvicorn", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "watchfiles", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
-    { name = "websockets", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "authlib" },
+    { name = "cyclopts" },
+    { name = "exceptiongroup" },
+    { name = "griffelib" },
+    { name = "httpx" },
+    { name = "joserfc" },
+    { name = "jsonref" },
+    { name = "jsonschema-path" },
+    { name = "mcp" },
+    { name = "openapi-pydantic" },
+    { name = "opentelemetry-api" },
+    { name = "packaging" },
+    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"] },
+    { name = "pyperclip" },
+    { name = "python-multipart" },
+    { name = "pyyaml" },
+    { name = "starlette", version = "1.3.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "uncalled-for" },
+    { name = "uvicorn" },
+    { name = "watchfiles" },
+    { name = "websockets" },
 ]
 
 [[package]]
@@ -2438,6 +2455,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/59/de/679a53472c25860837e32c0442c962fa86e95317a36460e2c9d5c91b17c2/langchain_core-1.4.0.tar.gz", hash = "sha256:1dc341eed802ed9c117c0df3923c991e5e9e226571e5725c194eeb5bd93d1a7f", size = 920260, upload-time = "2026-05-11T18:42:35.919Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0f/1a/86c38c27b81913a1c6c12448cab55defb5a1097c7dc9a4cea83f55477a2d/langchain_core-1.4.0-py3-none-any.whl", hash = "sha256:23cbbdb46e38ddd1dd5247e6167e96013eae74bea4c5949c550809970a9e565c", size = 548120, upload-time = "2026-05-11T18:42:33.992Z" },
+]
+
+[[package]]
+name = "langchain-falkordb"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "falkordb" },
+    { name = "langchain-core" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/16/646fafe26b33a64fa591755a2f6fa82c18926039fe3d2ef50fc06bea0403/langchain_falkordb-0.2.0.tar.gz", hash = "sha256:d6c9d9ec5c864ac4f626cea34cbcd289f142d0aef83aaa62c2064365ff1597f5", size = 32189, upload-time = "2026-07-06T03:50:28.515Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/af/08/e793da0f11318ad07f945c458634b24473c8175b4b70a2878d9bd354f2f3/langchain_falkordb-0.2.0-py3-none-any.whl", hash = "sha256:851dce461a081001b1b536d4a72209f46f6225c3da8b217f54ce49b5d2b65b0a", size = 36376, upload-time = "2026-07-06T03:50:26.683Z" },
 ]
 
 [[package]]
@@ -4768,16 +4799,16 @@ wheels = [
 
 [[package]]
 name = "redis"
-version = "7.4.0"
+version = "8.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7b/7f/3759b1d0d72b7c92f0d70ffd9dc962b7b7b5ee74e135f9d7d8ab06b8a318/redis-7.4.0.tar.gz", hash = "sha256:64a6ea7bf567ad43c964d2c30d82853f8df927c5c9017766c55a1d1ed95d18ad", size = 4943913, upload-time = "2026-03-24T09:14:37.53Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/99/604f0b666d4c616d891cf77ebb9db6bb21601344c051aebf1b72b9ff915f/redis-8.1.0.tar.gz", hash = "sha256:6e1a19beef9225c83efd689c7e6b7da2d5215b1f42cd13b7fc3714d0a09c7b25", size = 5254356, upload-time = "2026-07-30T08:51:00.269Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/74/3a/95deec7db1eb53979973ebd156f3369a72732208d1391cd2e5d127062a32/redis-7.4.0-py3-none-any.whl", hash = "sha256:a9c74a5c893a5ef8455a5adb793a31bb70feb821c86eccb62eebef5a19c429ec", size = 409772, upload-time = "2026-03-24T09:14:35.968Z" },
+    { url = "https://files.pythonhosted.org/packages/66/9d/c5731f6e3608663d4d3656fd8d3aecee8b509c3082818f5a13eae925baea/redis-8.1.0-py3-none-any.whl", hash = "sha256:a4fe1aac3d3b3cc791d4b3d5931c5a956045dc951ee74d1c913ee3ac4d2ee9fb", size = 560618, upload-time = "2026-07-30T08:50:58.497Z" },
 ]
 
 [[package]]
 name = "redisvl"
-version = "0.18.2"
+version = "0.28.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonpath-ng" },
@@ -4789,9 +4820,9 @@ dependencies = [
     { name = "redis" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/50/32/1f8ade47e91c440002a8430abcfdb8a277c24f5eea03fc9f218c0e9cf471/redisvl-0.18.2.tar.gz", hash = "sha256:2323e153012767f8613a89a019dc1ff25f199f42360e350b10a21cb5aaf8c795", size = 887604, upload-time = "2026-05-12T15:40:24.791Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/f2/b13b84bb79be86dcd4812152d892d634228be4affa3c9315b58f262c2261/redisvl-0.28.0.tar.gz", hash = "sha256:851a9528ffefc547263e50db90e5bf9efaeb9f5c91771073705827f294ab02c0", size = 1388567, upload-time = "2026-10-09T13:35:34.033Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/c1/f18d49c5f39f3970e221ccb93850485a4d77ad5c7b7abdf84899f9f9f505/redisvl-0.18.2-py3-none-any.whl", hash = "sha256:8bec89de047e5264fae068a13c75f7920e1b0eacd3d8bf0f5862949124132f24", size = 225554, upload-time = "2026-05-12T15:40:22.712Z" },
+    { url = "https://files.pythonhosted.org/packages/46/5c/79d31615c7ffa512825d7bcfe63e42052f815871692f9f1e3bd0fa1c92c7/redisvl-0.28.0-py3-none-any.whl", hash = "sha256:0f013853a54219651355ec3a6c5a3d2c5cdf02935ffc0aa27c9cb80e2023d306", size = 435177, upload-time = "2026-10-09T13:35:32.122Z" },
 ]
 
 [[package]]
@@ -5181,8 +5212,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "jeepney", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "cryptography" },
+    { name = "jeepney" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
@@ -5368,7 +5399,7 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "anyio", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "anyio" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/81/69/17425771797c36cded50b7fe44e850315d039f28b15901ab44839e70b593/starlette-1.0.0.tar.gz", hash = "sha256:6a4beaf1f81bb472fd19ea9b918b50dc3a77a6f2e190a12954b25e6ed5eea149", size = 2655289, upload-time = "2026-03-22T18:29:46.779Z" }
@@ -5384,7 +5415,7 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "anyio", marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "anyio" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz", hash = "sha256:05d0213193f2fbaae60e2ecb593b4add4262ad4e46536b54abe36f11a71724e0", size = 2703240, upload-time = "2026-06-12T09:23:11.602Z" }
 wheels = [
