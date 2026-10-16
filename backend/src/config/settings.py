@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,8 +22,8 @@ class Settings(BaseSettings):
     falkordb_url: str
     falkordb_user: str
 
-    qa_llm: str =  "qwen/qwen3.8-27b"
-    cypher_llm: str =  "qwen/qwen3.8-27b"
+    qa_llm: str = "qwen/qwen3.8-27b"
+    cypher_llm: str = "qwen/qwen3.8-27b"
     title_llm: str = "qwen/qwen3.8-27b"
     summarization_llm: str = "qwen/qwen3.8-27b"
     sentry_dsn: str
@@ -45,10 +46,10 @@ class Settings(BaseSettings):
     max_size_processable_mb: int = 8
     model_run_limit: int = 15
     model_thread_limit: int = 50
-    model_exit_behavior: str = "end"
+    model_exit_behavior: Literal["end", "error"] = "end"
     tool_run_limit: int = 15
     tool_thread_limit: int = 50
-    tool_exit_behaviour: str = "continue"
+    tool_exit_behaviour: Literal["continue", "end", "error"] = "continue"
     message_limit: int = 12
     token_limit: int = 8000
     keep_message_limit: int = 10
@@ -62,6 +63,7 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_db_url(cls, v: str) -> str:
         return v.replace("postgres://", "postgresql://", 1)
+
 
 @lru_cache()
 def get_settings() -> Settings:

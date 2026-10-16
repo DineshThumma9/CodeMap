@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager, contextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from loguru import logger
+from psycopg import AsyncConnection
+from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -9,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.config.settings import settings
 
-_pool: AsyncConnectionPool | None = None
+_pool: AsyncConnectionPool[AsyncConnection[DictRow]] | None = None
 _checkpointer: AsyncPostgresSaver | None = None
 
 
@@ -107,7 +109,7 @@ def get_task_db():
 
 async def init_checkpointer():
     global _pool, _checkpointer
-    _pool = AsyncConnectionPool(
+    _pool = AsyncConnectionPool[AsyncConnection[DictRow]](
         conninfo=settings.database_url,
         max_size=settings.db_checkpointer_pool_size,
         max_lifetime=300,
@@ -115,12 +117,13 @@ async def init_checkpointer():
         kwargs={
             "autocommit": True,
             "prepare_threshold": None,
+            "row_factory": dict_row,
             "keepalives": 1,
             "keepalives_idle": 10,
             "keepalives_interval": 10,
             "keepalives_count": 5,
         },
-        check=AsyncConnectionPool.check_connection,
+        check=AsyncConnectionPool[AsyncConnection[DictRow]].check_connection,
         open=False,
     )
     await _pool.open()
@@ -129,6 +132,10 @@ async def init_checkpointer():
 
 
 def get_checkpointer() -> AsyncPostgresSaver:
+    if _checkpointer is None:
+        raise RuntimeError(
+            "Checkpointer is not initialized. Ensure init_checkpointer() has been called."
+        )
     return _checkpointer
 
 

@@ -5,9 +5,10 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from loguru import logger
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
 
 from src.db.redisdb import aredis as redis
 
@@ -98,7 +99,8 @@ async def set_api_provider(
 
     existing = await db.execute(
         select(APIKEYS).where(
-            APIKEYS.user_id == current_user.userid, APIKEYS.provider == api_provider
+            col(APIKEYS.user_id) == current_user.userid,
+            col(APIKEYS.provider) == api_provider,
         )
     )
 
@@ -205,7 +207,7 @@ async def api_config(
     db: AsyncSession = Depends(get_db), user=Depends(get_current_user)
 ):
     api_configs = await db.execute(
-        select(APIKEYS).where(APIKEYS.user_id == user.userid)
+        select(APIKEYS).where(col(APIKEYS.user_id) == user.userid)
     )
     api_configs = api_configs.scalars().all()
     return api_configs
@@ -231,13 +233,13 @@ async def setup_mcp(
     # 2. Delete any existing servers for this user that are NOT in the incoming list
     if incoming_urls:
         stmt = delete(UserMCPConfig).where(
-            UserMCPConfig.user_id == user.userid,
-            UserMCPConfig.server_url.notin_(incoming_urls),
+            col(UserMCPConfig.user_id) == user.userid,
+            col(UserMCPConfig.server_url).notin_(incoming_urls),
         )
         await db.execute(stmt)
     else:
         # If the incoming list is totally empty, delete all of them
-        stmt = delete(UserMCPConfig).where(UserMCPConfig.user_id == user.userid)
+        stmt = delete(UserMCPConfig).where(col(UserMCPConfig.user_id) == user.userid)
         await db.execute(stmt)
 
     # 3. Insert or update the incoming servers
@@ -304,7 +306,7 @@ async def get_mcp_config(
     mcp_configs = (
         (
             await db.execute(
-                select(UserMCPConfig).where(UserMCPConfig.user_id == user.userid)
+                select(UserMCPConfig).where(col(UserMCPConfig.user_id) == user.userid)
             )
         )
         .scalars()
@@ -336,7 +338,7 @@ async def get_mcp_config(
 async def get_mcp_tools_count(user: User = Depends(get_current_user)):
     from src.service.agent.mcp import MCPService
 
-    mcp_service = MCPService(user.userid)
+    mcp_service = MCPService(str(user.userid))
     count_data = await mcp_service.get_tools_count()
     return count_data
 

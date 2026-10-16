@@ -2,7 +2,7 @@ import datetime
 import os
 import uuid
 from collections import defaultdict
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import httpx
 from fastapi import Depends, HTTPException
@@ -80,10 +80,10 @@ class AuthService:
             raise credentials_exception
 
         try:
-            payload = jwt.decode(
+            payload: Dict[str, Any] = jwt.decode(
                 token, settings.secret_key, algorithms=[settings.algorithm]
             )
-            email: str = payload.get("sub")
+            email = payload.get("sub")
             if email is None:
                 raise credentials_exception
         except JWTError:

@@ -1,11 +1,14 @@
+from typing import Any, Union, cast
+from uuid import UUID
+
 from loguru import logger
 from qdrant_client.http import models as rest_models
 
 from src.db.graphdb import get_graph
 from src.db.vectordb import COLLECTION, COLLECTION_CODE, _get_sync_client
-from uuid import UUID
 
-def wipe_kb_data(kb_id: UUID) -> None:
+
+def wipe_kb_data(kb_id: Union[UUID, str]) -> None:
     """Remove all stored data for a given kb_id from Qdrant and FalkorDB.
 
     Safe to call at the start of an ingest task to make re-ingestion idempotent.
@@ -32,7 +35,8 @@ def wipe_kb_data(kb_id: UUID) -> None:
             logger.warning(f"Qdrant wipe failed for {collection} kb={ns}: {e}")
 
     try:
-        graph = get_graph(kb_id)
-        graph.delete()
+        graph = cast(Any, get_graph(str(kb_id)))
+        if graph is not None and hasattr(graph, "delete"):
+            graph.delete()
     except Exception as e:
         logger.warning(f"FalkorDB wipe failed kb={ns}: {e}")

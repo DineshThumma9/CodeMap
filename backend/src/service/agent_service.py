@@ -3,19 +3,19 @@ from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
 
 from src.db.dbs import get_checkpointer
 from src.db.graphdb import get_async_graph, get_graph, get_langchain_graph
 from src.db.vectordb import get_user_vector_db
+from src.models.enums import ThinkingLevel
 from src.models.models import KnowledgeBase, Session, User, UserLLMConfig
 from src.service.agent.middleware import middleware_setup
 from src.service.agent.prompts import system_prompt
 from src.service.agent.tools import Tools
 from src.service.auth_service import AuthService
 from src.service.background.tasks import session_title_gen
-from src.models.enums import ThinkingLevel
 
 
 class AgentService:
@@ -28,7 +28,7 @@ class AgentService:
     async def get_llm_instance(self):
 
         result = await self.db.execute(
-            select(UserLLMConfig).where(UserLLMConfig.user_id == self.user.userid)
+            select(UserLLMConfig).where(col(UserLLMConfig.user_id) == self.user.userid)
         )
         config = result.scalars().first()
 
@@ -64,7 +64,7 @@ class AgentService:
     async def get_session_kb_context(self):
 
         result = await self.db.execute(
-            select(Session).where(Session.session_id == self.session_id)
+            select(Session).where(col(Session.session_id) == self.session_id)
         )
         session = result.scalars().first()
 
@@ -77,7 +77,7 @@ class AgentService:
 
         if session.kb_id:
             result = await self.db.execute(
-                select(KnowledgeBase).where(KnowledgeBase.kb_id == session.kb_id)
+                select(KnowledgeBase).where(col(KnowledgeBase.kb_id) == session.kb_id)
             )
             kb = result.scalars().first()
 
@@ -96,13 +96,16 @@ class AgentService:
         return session, kb, source_type, ns
 
     async def build(
-        self, msg: str, mcp_enabled: bool = True, thinking_level: ThinkingLevel = None
+        self,
+        msg: str,
+        mcp_enabled: bool = True,
+        thinking_level: ThinkingLevel | str | None = None,
     ):
 
         session, kb, source_type, ns = await self.get_session_kb_context()
 
         if session.title == "New Chat":
-            session_title_gen.delay(msg, str(self.session_id), str(self.user.userid))
+            session_title_gen.delay(msg, self.session_id, str(self.user.userid))
 
         vector_db = None
         async_graph_instance = None
@@ -116,7 +119,7 @@ class AgentService:
 
         llm = await self.get_llm_instance()
         tools_instance = await Tools.build(
-            user_id=self.user.userid,
+            user_id=str(self.user.userid),
             vector_db=vector_db,
             falkordb_ns=ns,
             graph_obj=langchain_graph_instance,

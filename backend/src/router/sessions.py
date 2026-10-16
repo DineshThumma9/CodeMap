@@ -9,7 +9,7 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from src.db.redisdb import aredis as redis
 
@@ -54,11 +54,11 @@ async def create_new_session(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    session_id = body.session_id if body and body.session_id else str(uuid.uuid4())
+    session_uuid = UUID(body.session_id) if body and body.session_id else uuid.uuid4()
     try:
         new_session = SessionModel(
             user_id=user.userid,
-            session_id=session_id,
+            session_id=session_uuid,
             title="New Chat",
             model="default",
         )
@@ -83,25 +83,26 @@ async def get_chat_history(
     response_format=PaginatedMessageResponse,
 ):
     """Get messages for a session. Pass `cursor` from previous response to load older messages."""
-    query = select(Message).where(Message.session_id == session_id)
+    query = select(Message).where(col(Message.session_id) == session_id)
 
     if cursor:
         timestamp, _id = crypto.decode_cursor(cursor)
+        cursor_uuid = UUID(str(_id)) if _id else None
         # Scroll UP — load messages OLDER than the cursor
         query = query.filter(
             or_(
-                Message.timestamp < timestamp,
+                col(Message.timestamp) < timestamp,
                 and_(
-                    Message.timestamp == timestamp,
-                    Message.message_id < str(_id),
+                    col(Message.timestamp) == timestamp,
+                    col(Message.message_id) < cursor_uuid,
                 ),
             )
         )
 
     # Fetch limit+1 to detect if there are more pages
-    query = query.order_by(Message.timestamp.desc(), Message.message_id.desc()).limit(
-        limit + 1
-    )
+    query = query.order_by(
+        col(Message.timestamp).desc(), col(Message.message_id).desc()
+    ).limit(limit + 1)
     result = await db.execute(query)
     rows = result.scalars().all()
 
@@ -177,7 +178,7 @@ async def delete_session(
     except ValueError:
         raise HTTPException(400, "Invalid session ID format")
 
-    stmt = select(SessionModel).where(SessionModel.session_id == sid)
+    stmt = select(SessionModel).where(col(SessionModel.session_id) == sid)
     result = await db.execute(stmt)
     session_row = result.scalars().first()
     if not session_row:
@@ -186,10 +187,8 @@ async def delete_session(
     if str(session_row.user_id) != str(user.userid):
         raise HTTPException(403, "Not authorized to delete this session")
 
-    # FIXED: keyword argument updated from 'user' to 'user_id' to match task signature
     try:
-        # 1. Fetch the Session
-        session_stmt = select(SessionModel).where(SessionModel.session_id == sid)
+        session_stmt = select(SessionModel).where(col(SessionModel.session_id) == sid)
         result = await db.execute(session_stmt)
         session_row = result.scalars().first()
 
@@ -204,14 +203,14 @@ async def delete_session(
             if kb_id_to_check:
                 other_sessions_stmt = (
                     select(SessionModel)
-                    .where(SessionModel.kb_id == kb_id_to_check)
+                    .where(col(SessionModel.kb_id) == kb_id_to_check)
                     .limit(1)
                 )
                 other_sessions_result = await db.execute(other_sessions_stmt)
 
                 if not other_sessions_result.scalars().first():
                     kb_stmt = select(KnowledgeBase).where(
-                        KnowledgeBase.kb_id == kb_id_to_check
+                        col(KnowledgeBase.kb_id) == kb_id_to_check
                     )
                     kb_result = await db.execute(kb_stmt)
                     if kb := kb_result.scalars().first():
@@ -270,24 +269,27 @@ async def get_all_sessions(
 
         query = (
             select(SessionModel, KnowledgeBase)
-            .outerjoin(KnowledgeBase, SessionModel.kb_id == KnowledgeBase.kb_id)
-            .where(SessionModel.user_id == user.userid)
+            .outerjoin(
+                KnowledgeBase, col(SessionModel.kb_id) == col(KnowledgeBase.kb_id)
+            )
+            .where(col(SessionModel.user_id) == user.userid)
         )
 
         if cursor:
             cursor_updated_at, cursor_id = crypto.decode_cursor(cursor)
             if cursor_updated_at:
+                cursor_uuid = UUID(str(cursor_id)) if cursor_id else None
                 query = query.where(
                     or_(
-                        SessionModel.updated_at < cursor_updated_at,
+                        col(SessionModel.updated_at) < cursor_updated_at,
                         and_(
-                            SessionModel.updated_at == cursor_updated_at,
-                            SessionModel.session_id < cursor_id,
+                            col(SessionModel.updated_at) == cursor_updated_at,
+                            col(SessionModel.session_id) < cursor_uuid,
                         ),
                     )
                 )
 
-        query = query.order_by(SessionModel.updated_at.desc()).limit(limit + 1)
+        query = query.order_by(col(SessionModel.updated_at).desc()).limit(limit + 1)
         results = await db.execute(query)
         results = results.all()  # .scalars() would drop the KnowledgeBase join column
         has_more = len(results) > limit

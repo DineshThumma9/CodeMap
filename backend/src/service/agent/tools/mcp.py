@@ -2,6 +2,7 @@ from langchain_core.tools import StructuredTool
 
 from src.service.agent.mcp import MCPService
 
+
 class MCPTools:
     def __init__(self, user_id: str):
         self.user_id = user_id

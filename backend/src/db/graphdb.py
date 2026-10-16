@@ -1,10 +1,11 @@
-from typing import Optional, Union
 import urllib.parse
+from typing import Optional, Union
 from uuid import UUID
-from loguru import logger
-from langchain_falkordb import FalkorDBGraph
-from falkordb.asyncio import FalkorDB as AsyncFalkorDB
+
 from falkordb import FalkorDB
+from falkordb.asyncio import FalkorDB as AsyncFalkorDB
+from langchain_falkordb import FalkorDBGraph
+from loguru import logger
 
 from src.config.settings import settings
 
@@ -23,7 +24,11 @@ def get_graph(graph_id: Optional[Union[UUID, str]] = None):
     global _sync_driver
     if _sync_driver is None:
         init_graph()
-    return _sync_driver.select_graph(str(graph_id)) if graph_id is not None else _sync_driver
+    return (
+        _sync_driver.select_graph(str(graph_id))
+        if graph_id is not None
+        else _sync_driver
+    )
 
 
 def init_async_graph(force_reconnect: bool = False) -> AsyncFalkorDB:
@@ -37,10 +42,16 @@ def get_async_graph(graph_id: Optional[Union[UUID, str]] = None):
     global _async_driver
     if _async_driver is None:
         init_async_graph()
-    return _async_driver.select_graph(str(graph_id)) if graph_id is not None else _async_driver
+    return (
+        _async_driver.select_graph(str(graph_id))
+        if graph_id is not None
+        else _async_driver
+    )
 
 
-def get_langchain_graph(graph_id: Optional[Union[UUID, str]] = None) -> Optional[FalkorDBGraph]:
+def get_langchain_graph(
+    graph_id: Optional[Union[UUID, str]] = None,
+) -> Optional[FalkorDBGraph]:
     if graph_id is None:
         return None
     parsed = urllib.parse.urlparse(settings.falkordb_url)
@@ -67,5 +78,3 @@ async def close_graph():
     if _async_driver is not None:
         await _async_driver.aclose()
         _async_driver = None
-
-

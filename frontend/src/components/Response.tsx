@@ -10,6 +10,7 @@ mermaid.initialize({
   securityLevel: "loose",
 });
 import RagStatusMessage from "./RagStatusMessage.tsx";
+import ToolTraceTimeline from "./ToolTraceTimeline.tsx";
 import {
   Conversation,
   ConversationContent,
@@ -211,7 +212,7 @@ const sanitizeMermaid = (raw: string): string => {
 
   const firstWord = text.split(/[\s\n]+/)[0]?.toLowerCase() || "";
   const startsWithKeyword = DIAGRAM_KEYWORDS.some((kw) =>
-    firstWord.startsWith(kw)
+    firstWord.startsWith(kw),
   );
 
   if (!startsWithKeyword) {
@@ -244,7 +245,7 @@ const MarkdownMermaid = ({ chart }: { chart: string }) => {
     if (typeof document !== "undefined") {
       document
         .querySelectorAll(
-          'body > [id^="dmermaid"], body > [id^="mermaid-"], body > .mermaid-error, body > [aria-roledescription="error"]'
+          'body > [id^="dmermaid"], body > [id^="mermaid-"], body > .mermaid-error, body > [aria-roledescription="error"]',
         )
         .forEach((el) => {
           try {
@@ -284,7 +285,7 @@ const MarkdownMermaid = ({ chart }: { chart: string }) => {
         if (typeof document !== "undefined") {
           document
             .querySelectorAll(
-              'body > [id^="dmermaid"], body > [id^="mermaid-"], body > .mermaid-error, body > [aria-roledescription="error"]'
+              'body > [id^="dmermaid"], body > [id^="mermaid-"], body > .mermaid-error, body > [aria-roledescription="error"]',
             )
             .forEach((el) => {
               try {
@@ -562,6 +563,12 @@ const Response = () => {
                         </div>
                       ) : (
                         <>
+                          {msg.tool_traces && msg.tool_traces.length > 0 && (
+                            <ToolTraceTimeline
+                              tools={msg.tool_traces}
+                              isStreaming={msg.isStreaming}
+                            />
+                          )}
                           {msg.content ? (
                             <MessageResponse components={markdownComponents}>
                               {msg.content}
@@ -570,7 +577,12 @@ const Response = () => {
                             <div className="flex h-6 items-center">
                               {msg.isStreaming ? (
                                 <Shimmer className="text-sm font-medium">
-                                  Generating response...
+                                  {msg.tool_traces &&
+                                  msg.tool_traces.some(
+                                    (t: any) => t.status === "running",
+                                  )
+                                    ? "Executing agent tools..."
+                                    : "Generating response..."}
                                 </Shimmer>
                               ) : (
                                 <span className="text-sm text-muted-foreground">

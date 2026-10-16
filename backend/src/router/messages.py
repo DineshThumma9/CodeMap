@@ -1,9 +1,10 @@
 import json
 from collections import defaultdict
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.messages.ai import AIMessageChunk
 from loguru import logger
 
@@ -16,6 +17,57 @@ from ..service.auth_service import get_current_user
 from ..service.chat_service import ChatService
 
 router = APIRouter()
+
+
+def _format_tool_summary(tool_name: str, content: Any) -> str:
+    if not content:
+        return "Executed successfully"
+    content_str = str(content).strip()
+    if tool_name == "assess_refactor_risk":
+        if "CRITICAL" in content_str:
+            return "CRITICAL Risk • Large blast radius detected"
+        elif "HIGH" in content_str:
+            return "HIGH Risk • Direct & transitive callers analyzed"
+        elif "MEDIUM" in content_str:
+            return "MEDIUM Risk • Dependents mapped"
+        elif "LOW" in content_str:
+            return "LOW Risk • Safe to modify"
+        return "Calculated blast radius & risk tier"
+    elif tool_name == "trace_call_graph":
+        for line in content_str.split("\n"):
+            line_s = line.strip(" -*#")
+            if any(
+                k in line_s for k in ["Callers", "Callees", "Incoming", "Total callers"]
+            ):
+                return line_s[:100]
+        return "Traversed call graph neighborhood"
+    elif tool_name == "trace_execution_path":
+        for line in content_str.split("\n"):
+            line_s = line.strip(" -*#")
+            if "hops" in line_s or "Path:" in line_s:
+                return line_s[:100]
+        return "Traced multi-hop execution path"
+    elif tool_name == "get_project_context":
+        return "Extracted architecture, domain clusters & authority pillars"
+    elif tool_name == "search_syntax":
+        return "Found symbols ranked by PageRank & Betweenness"
+    elif tool_name == "read_code":
+        return "Retrieved source definition"
+    elif tool_name == "search_code":
+        return "Retrieved relevant semantic code chunks"
+    elif tool_name == "ask_architecture":
+        return "Executed FalkorDB GraphBLAS Cypher analysis"
+    elif "create_issue" in tool_name:
+        return "Created GitHub Issue"
+    elif "create_pull_request" in tool_name:
+        return "Opened GitHub Pull Request"
+    elif "branch" in tool_name:
+        return "Created Git Branch"
+    elif "push" in tool_name:
+        return "Pushed code changes"
+    else:
+        first_line = content_str.split("\n")[0].strip(" -*#`")
+        return first_line[:100] if first_line else "Completed action"
 
 
 @router.post("/simple-stream")
@@ -33,12 +85,12 @@ async def message_stream(
     )
 
     config = defaultdict(dict)
-    config["configurable"]["thread_id"] = str(body.session_id)
-    config["metadata"]["user_id"] = str(user.userid)
-    config["metadata"]["session_id"] = str(body.session_id)
+    config["configurable"]["thread_id"] = body.session_id
+    config["metadata"]["user_id"] = user.userid
+    config["metadata"]["session_id"] = body.session_id
 
     return StreamingResponse(
-        _stream(agent, body.msg, config, request, str(body.session_id), db),
+        _stream(agent, body.msg, config, request, body.session_id, db),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -53,6 +105,9 @@ async def _stream(
     yield f"data: {json.dumps({'type': 'start', 'content': ''})}\n\n"
     full = ""
     usage_data = None
+    known_tools_by_id: dict[str, str] = {}
+    pending_tool_chunks: dict[int | str, dict] = {}
+
     try:
         async for chunk in agent.astream(
             {"messages": [HumanMessage(content=message)]},
@@ -89,7 +144,51 @@ async def _stream(
                                         usage_data[detail_key].get(k, 0) + v
                                     )
 
+            # Stream tool calls
             if hasattr(msg_chunk, "tool_call_chunks") and msg_chunk.tool_call_chunks:
+                for tc in msg_chunk.tool_call_chunks:
+                    idx = tc.get("index", 0)
+                    if idx not in pending_tool_chunks:
+                        pending_tool_chunks[idx] = {
+                            "id": tc.get("id") or f"call_{idx}",
+                            "name": "",
+                            "emitted": False,
+                        }
+                    if tc.get("id"):
+                        pending_tool_chunks[idx]["id"] = tc["id"]
+                    if tc.get("name"):
+                        pending_tool_chunks[idx]["name"] += tc["name"]
+
+                    call_id = pending_tool_chunks[idx]["id"]
+                    tool_name = pending_tool_chunks[idx]["name"]
+                    if tool_name and not pending_tool_chunks[idx]["emitted"]:
+                        pending_tool_chunks[idx]["emitted"] = True
+                        known_tools_by_id[call_id] = tool_name
+                        yield f"data: {json.dumps({'type': 'tool_call', 'id': call_id, 'tool': tool_name})}\n\n"
+                continue
+
+            if hasattr(msg_chunk, "tool_calls") and msg_chunk.tool_calls:
+                for tc in msg_chunk.tool_calls:
+                    call_id = tc.get("id") or f"call_{len(known_tools_by_id)}"
+                    tool_name = tc.get("name")
+                    if tool_name and call_id not in known_tools_by_id:
+                        known_tools_by_id[call_id] = tool_name
+                        yield f"data: {json.dumps({'type': 'tool_call', 'id': call_id, 'tool': tool_name, 'args': tc.get('args', {})})}\n\n"
+
+            # Stream tool results
+            if isinstance(msg_chunk, ToolMessage):
+                call_id = getattr(msg_chunk, "tool_call_id", "")
+                tool_name = getattr(msg_chunk, "name", "") or known_tools_by_id.get(
+                    call_id, "tool"
+                )
+                status = (
+                    "error"
+                    if getattr(msg_chunk, "status", "") == "error"
+                    else "completed"
+                )
+                raw_content = getattr(msg_chunk, "content", "")
+                summary = _format_tool_summary(tool_name, raw_content)
+                yield f"data: {json.dumps({'type': 'tool_result', 'id': call_id, 'tool': tool_name, 'summary': summary, 'status': status})}\n\n"
                 continue
 
             if hasattr(msg_chunk, "content") and msg_chunk.content:
@@ -122,13 +221,14 @@ async def _stream(
     if usage_data:
         try:
             from sqlalchemy import update
+            from sqlmodel import col
 
             from ..db.redisdb import aredis as redis
             from ..models.models import Session as SessionModel
 
             stmt = (
                 update(SessionModel)
-                .where(SessionModel.session_id == session_id)
+                .where(col(SessionModel.session_id) == session_id)
                 .values(
                     input_tokens=SessionModel.input_tokens
                     + usage_data.get("input_tokens", 0),

@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from codegraphcontext.utils.debug_log import error_logger, info_logger
+from PIL.Image import logger
 
 # Tags that represent write operations
 _WRITE_TAGS = frozenset({"insert", "update", "delete"})
@@ -141,9 +141,9 @@ def parse_mybatis_mapper(file_path: Path) -> List[Dict[str, Any]]:
             )
 
     except ET.ParseError as e:
-        error_logger(f"[MYBATIS] XML parse error in {file_path}: {e}")
+        logger.error(f"[MYBATIS] XML parse error in {file_path}: {e}")
     except Exception as e:
-        error_logger(f"[MYBATIS] Error parsing {file_path}: {e}")
+        logger.error(f"[MYBATIS] Error parsing {file_path}: {e}")
 
     return records
 
@@ -181,7 +181,7 @@ def find_and_parse_mybatis_mappers(repo_path: Path) -> List[Dict[str, Any]]:
             all_records.extend(records)
             file_count += 1
 
-    info_logger(
+    logger.info(
         f"[MYBATIS] Parsed {file_count} mapper files, "
         f"{len(all_records)} operation records found"
     )

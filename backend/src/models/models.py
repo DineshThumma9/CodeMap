@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, ClassVar, List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import EmailStr
@@ -14,12 +14,15 @@ from src.models.enums import KBSourceType, KBStatus, SenderRole
 
 # --- DB (SQLModel) ---
 class User(SQLModel, table=True):
-    __tablename__ = "users"
+    __tablename__: ClassVar[Any] = "users"
     userid: UUID = Field(default_factory=uuid4, primary_key=True)
     username: str = Field(index=True, unique=True)
     email: EmailStr = Field(index=True, unique=True)
     hpassword: str
-    created_at: datetime = Field(sa_column_kwargs={"server_default": func.now()})
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column_kwargs={"server_default": func.now()},
+    )
 
     sessions: List["Session"] = Relationship(
         back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
@@ -30,7 +33,7 @@ class User(SQLModel, table=True):
 
 
 class Session(SQLModel, table=True):
-    __tablename__ = "sessions"
+    __tablename__: ClassVar[Any] = "sessions"
     session_id: UUID = Field(
         default_factory=uuid4,
         primary_key=True,
@@ -49,9 +52,13 @@ class Session(SQLModel, table=True):
     total_tokens: int = Field(default=0)
     cached_input_tokens: int = Field(default=0)
     reasoning_tokens: int = Field(default=0)
-    created_at: datetime = Field(sa_column_kwargs={"server_default": func.now()})
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column_kwargs={"server_default": func.now()},
+    )
     updated_at: datetime = Field(
-        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()}
+        default_factory=datetime.utcnow,
+        sa_column_kwargs={"server_default": func.now(), "onupdate": func.now()},
     )
 
     user: Optional["User"] = Relationship(back_populates="sessions")
@@ -64,28 +71,31 @@ class Session(SQLModel, table=True):
 
 
 class Message(SQLModel, table=True):
-    __tablename__ = "messages"
+    __tablename__: ClassVar[Any] = "messages"
     message_id: UUID = Field(default_factory=uuid4, primary_key=True)
     session_id: UUID = Field(
         foreign_key="sessions.session_id", ondelete="CASCADE", index=True
     )
-    sender: SenderRole = Field(sa_column=SQLEnum(SenderRole))
+    sender: SenderRole = Field(sa_column=Column(SQLEnum(SenderRole)))
     content: str
-    timestamp: datetime = Field(sa_column_kwargs={"server_default": func.now()})
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column_kwargs={"server_default": func.now()},
+    )
     files: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
     model_response_time_ms: Optional[float] = None
     session: Optional["Session"] = Relationship(back_populates="messages")
 
 
 class RefreshToken(SQLModel, table=True):
-    __tablename__ = "refreshtoken"
+    __tablename__: ClassVar[Any] = "refreshtoken"
     token: str = Field(primary_key=True)
     email: EmailStr
     expiry_date: datetime
 
 
 class APIKEYS(SQLModel, table=True):
-    __tablename__ = "api_keys"
+    __tablename__: ClassVar[Any] = "api_keys"
     user_id: UUID = Field(
         foreign_key="users.userid", ondelete="CASCADE", primary_key=True
     )
@@ -94,7 +104,7 @@ class APIKEYS(SQLModel, table=True):
 
 
 class UserLLMConfig(SQLModel, table=True):
-    __tablename__ = "config"
+    __tablename__: ClassVar[Any] = "config"
     user_id: UUID = Field(
         foreign_key="users.userid", ondelete="CASCADE", primary_key=True
     )
@@ -103,13 +113,16 @@ class UserLLMConfig(SQLModel, table=True):
 
 
 class KnowledgeBase(SQLModel, table=True):
-    __tablename__ = "knowledge_bases"
+    __tablename__: ClassVar[Any] = "knowledge_bases"
     kb_id: UUID = Field(primary_key=True)
     user_id: UUID = Field(foreign_key="users.userid", ondelete="CASCADE", index=True)
     source_type: KBSourceType
     source_ref: str
     status: KBStatus = Field(default=KBStatus.PENDING)
-    created_at: datetime = Field(sa_column_kwargs={"server_default": func.now()})
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column_kwargs={"server_default": func.now()},
+    )
     indexed_at: Optional[datetime] = None
     source_sha: Optional[str] = None
     user: Optional["User"] = Relationship(back_populates="knowledge_bases")
@@ -117,7 +130,7 @@ class KnowledgeBase(SQLModel, table=True):
 
 
 class UserMCPConfig(SQLModel, table=True):
-    __tablename__ = "mcp_config"
+    __tablename__: ClassVar[Any] = "mcp_config"
     user_id: UUID = Field(
         foreign_key="users.userid", ondelete="CASCADE", primary_key=True
     )

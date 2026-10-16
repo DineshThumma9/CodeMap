@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Session, select
 
 from src.db.redisdb import aredis as redis_client
@@ -30,8 +31,8 @@ async def git_rag(
     request: Request,
     req: GitRequest,
     session_id: str,
-    kb_id: str = None,
-    db: Session = Depends(get_db),
+    kb_id: str,
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Triggers the background ingestion of a Git repository via Celery."""
@@ -119,7 +120,7 @@ async def get_rag(
     files: List[UploadFile] = File(...),
     session_id: str = Form(...),
     kb_id: str = Form(...),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Saves uploaded files and triggers background PDF ingestion via Celery."""
@@ -170,7 +171,9 @@ async def get_tree(reques: GitSpec):
 
 @router.get("/status")
 async def get_status(
-    kb_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    kb_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Retrieves the ingestion status. Checks Redis first, then falls back to Postgres."""
     try:

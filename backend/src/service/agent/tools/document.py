@@ -1,6 +1,8 @@
 from typing import Any
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import StructuredTool
+
 
 class DocumentTools:
     def __init__(
@@ -53,8 +55,10 @@ class DocumentTools:
 
         results = []
         for d in docs:
-            source = d.metadata.get('source', 'Unknown')
+            source = d.metadata.get("source", "Unknown")
             content = d.page_content
-            results.append(f"<document>\n<source>{source}</source>\n<content>\n{content}\n</content>\n</document>")
+            results.append(
+                f"<document>\n<source>{source}</source>\n<content>\n{content}\n</content>\n</document>"
+            )
 
         return "<retrieved_context>\n" + "\n".join(results) + "\n</retrieved_context>"

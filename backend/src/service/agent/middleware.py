@@ -18,9 +18,9 @@ GRAPH_TOOL_NAMES = {
     "explore_codebase",
     "search_syntax",
     "trace_call_graph",
-    "ask_architecture",
     "trace_execution_path",
-    "analyze_code_graph",
+    "assess_refactor_risk",
+    "ask_architecture",
 }
 
 
@@ -133,7 +133,9 @@ class SanitizeMessagesMiddleware(AgentMiddleware):
         return None
 
 
-def middleware_setup(thinking_level: ThinkingLevel = ThinkingLevel.MEDIUM):
+def middleware_setup(
+    thinking_level: ThinkingLevel | str | None = ThinkingLevel.MEDIUM,
+):
     if not isinstance(thinking_level, ThinkingLevel):
         try:
             thinking_level = ThinkingLevel[thinking_level.upper()]
@@ -142,9 +144,7 @@ def middleware_setup(thinking_level: ThinkingLevel = ThinkingLevel.MEDIUM):
 
     thinking_config = thinking_level.value
     summarization = SummarizationMiddleware(
-        model=ChatGroq(
-            model=settings.summarization_llm, api_key=settings.groq_api_key
-        ),
+        model=ChatGroq(model=settings.summarization_llm, api_key=settings.groq_api_key),
         trigger=[
             ("messages", thinking_config.message_limit),
             ("tokens", thinking_config.token_limit),

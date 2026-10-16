@@ -7,6 +7,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any, Optional
 
 import tree_sitter_language_pack as tlsp
 from loguru import logger
@@ -44,19 +45,25 @@ from .complied_object import CompiledObjectProcessor
 
 
 class CodePipeline:
-    def __init__(self, req: GitRequest, kb_id: str, branch: str, token: str):
+    def __init__(
+        self,
+        req: GitRequest,
+        kb_id: str,
+        branch: Optional[str] = None,
+        token: Optional[str] = None,
+    ):
 
         self.repo_url: str = f"https://github.com/{req.owner}/{req.repo}.git"
         self.kb_id: str = kb_id
         self.branch = branch
 
-        self.graph = get_graph(kb_id)
+        self.graph: Any = get_graph(kb_id)
         self.vector_db = vector_db
 
         self.project_files = []
         self.processed_code = []
-        self.tmp_dir_obj = None
-        self.tmp_dir = None
+        self.tmp_dir_obj: tempfile.TemporaryDirectory[str] | None = None
+        self.tmp_dir: str | None = None
         self.complied_obj = CompiledObjectProcessor()
 
     def clone(self):
@@ -86,6 +93,10 @@ class CodePipeline:
     def build(self):
         t0 = time.time()
         logger.info("[build] Scanning repository files...")
+        if self.tmp_dir is None:
+            raise RuntimeError(
+                "Repository has not been cloned yet. Call clone() first."
+            )
         temp_path = Path(self.tmp_dir)
         for file_path in temp_path.rglob("*"):
             if file_path.is_dir() or ".git" in file_path.parts:
@@ -265,7 +276,7 @@ class CodePipeline:
 
         relations = []
         for node, capture_name in captures:
-            if capture_name not in _NAME_CAPTURES:
+            if capture_name not in _NAME_CAPTURES or not node.text:
                 continue
 
             called_name = node.text.decode("utf-8")
@@ -287,7 +298,7 @@ class CodePipeline:
             while curr:
                 if curr.type in _FUNCTION_DEF_TYPES or curr.type in _CLASS_DEF_TYPES:
                     name_node = curr.child_by_field_name("name")
-                    if name_node:
+                    if name_node and name_node.text:
                         caller_parts.append(name_node.text.decode("utf-8"))
                 curr = curr.parent
 
@@ -302,7 +313,7 @@ class CodePipeline:
 
             if argument_node:
                 for arg in argument_node.children:
-                    if arg.is_named:
+                    if arg.is_named and arg.text:
                         args.append(arg.text.decode("utf-8"))
 
             source_node_id = f"{file_id}:{caller_name}"
@@ -323,7 +334,7 @@ class CodePipeline:
         logger.info(
             f"[extract] Parsing {len(self.project_files)} files with ThreadPoolExecutor..."
         )
-        max_workers = min(32, os.cpu_count() * 2 + 1)
+        max_workers = min(32, (os.cpu_count() or 1) * 2 + 1)
         errors = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
@@ -405,8 +416,12 @@ class CodePipeline:
             all_entites.extend([e.model_dump() for e in code.entities])
             all_relations.extend([r.model_dump() for r in code.relations])
 
-        user_defined_functions = {e["name"] for e in all_entites if e["kind"] in ("Function", "Method", "Class")}
-        
+        user_defined_functions = {
+            e["name"]
+            for e in all_entites
+            if e["kind"] in ("Function", "Method", "Class")
+        }
+
         filtered_relations = []
         for r in all_relations:
             if r["rel_type"] == "CALLS":
@@ -414,11 +429,13 @@ class CodePipeline:
                     filtered_relations.append(r)
             else:
                 filtered_relations.append(r)
-        
+
         all_relations = filtered_relations
 
         if not all_entites or not all_relations:
-            logger.warning("[graph] No entities or relations to write — skipping FalkorDB")
+            logger.warning(
+                "[graph] No entities or relations to write — skipping FalkorDB"
+            )
             return
 
         logger.info(
@@ -446,11 +463,8 @@ class CodePipeline:
             {"batch": all_entites},
         )
 
-        # Insert all relations grouped by type
         for rel_type in ["CONTAINS", "CALLS", "IMPORTS", "HAS_METHOD"]:
-            specific_rel = [
-                r for r in all_relations if r["rel_type"] == rel_type
-            ]
+            specific_rel = [r for r in all_relations if r["rel_type"] == rel_type]
             if specific_rel:
                 self.graph.query(
                     f"""
@@ -465,44 +479,60 @@ class CodePipeline:
 
         logger.info(f"[graph] FalkorDB write complete in {time.time() - t0:.2f}s")
 
-        # Offline GraphBLAS Algorithm Enrichment
+        # Offline GraphBLAS Algorithm Enrichment (Bucket A)
         try:
             t_algo = time.time()
-            logger.info(f"[graph] Running FalkorDB GraphBLAS matrix algorithms to enrich graph '{self.kb_id}'...")
-            
+            logger.info(
+                f"[graph] Running FalkorDB GraphBLAS matrix algorithms to enrich graph '{self.kb_id}'..."
+            )
+
             # 1. PageRank (Utility / Authority score)
-            self.graph.query("""
+            self.graph.query(
+                """
                 CALL algo.pageRank('CodeNode', 'CALLS') YIELD node, score
                 SET node.pagerank = score
-            """)
-            
+                """
+            )
+
             # 2. Harmonic Centrality (Root Orchestrator / Entrypoint reachability)
-            self.graph.query("""
+            self.graph.query(
+                """
                 CALL algo.HarmonicCentrality() YIELD node, score
                 SET node.harmonic = score
-            """)
-            
+                """
+            )
+
             # 3. Betweenness Centrality (Bridge / Chokepoint score)
-            self.graph.query("""
+            self.graph.query(
+                """
                 CALL algo.betweenness() YIELD node, score
                 SET node.betweenness = score
-            """)
-            
+                """
+            )
+
             # 4. CDLP (Community / Subsystem domain discovery)
-            self.graph.query("""
+            self.graph.query(
+                """
                 CALL algo.labelPropagation() YIELD node, communityId
                 SET node.community_id = communityId
-            """)
-            
+                """
+            )
+
             # 5. WCC (Weakly Connected Components / Dead code islands)
-            self.graph.query("""
-                CALL algo.WCC() YIELD node, componentId
+            self.graph.query(
+                """
+                CALL algo.WCC(null) YIELD node, componentId
                 SET node.wcc_id = componentId
-            """)
-            
-            logger.info(f"[graph] GraphBLAS enrichment completed in {time.time() - t_algo:.2f}s")
+                """
+            )
+
+            logger.info(
+                f"[graph] GraphBLAS enrichment completed in {time.time() - t_algo:.2f}s"
+            )
         except Exception as e:
-            logger.warning(f"[graph] GraphBLAS enrichment encountered warning (skipped): {e}")
+            logger.warning(
+                f"[graph] GraphBLAS enrichment encountered warning (skipped): {e}"
+            )
 
     def build_kb(self):
         """
@@ -533,8 +563,8 @@ class CodePipeline:
             concurrent.futures.wait([vectordb_task, graphdb_task])
 
             for task in [vectordb_task, graphdb_task]:
-                if task.exception():
-                    exc = task.exception()
+                exc = task.exception()
+                if exc is not None:
                     logger.error(f"[build_kb] Critical error in parallel write: {exc}")
                     raise exc
 

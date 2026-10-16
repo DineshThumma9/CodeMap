@@ -97,8 +97,6 @@ async def logout(
         ttl = int(exp - now)
         if ttl > 0:
             await aredis.setex(f"blacklist:{access_jti}", ttl, "1")
-
-        # 2. Remove the refresh token from the whitelist
         refresh_payload = jwt.decode(
             refresh, settings.secret_key, algorithms=[settings.algorithm]
         )

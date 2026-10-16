@@ -71,7 +71,9 @@ async def lifespan(app: FastAPI):
     # 1. Init engines and create tables — must be first
     _init_db()
     from sqlmodel import SQLModel
+
     from src.models import models
+
     SQLModel.metadata.create_all(dbs.engine)
 
     # 2. Warm up the async connection pool so the first real request

@@ -1,18 +1,10 @@
 {
   "include": [
-    "."
+    "src"
   ],
   "extraPaths": [
     "."
   ],
   "venvPath": ".",
-  "venv": ".venv",
-  "typeCheckingMode": "off",
-  "reportOptionalMemberAccess": "none",
-  "reportOptionalCall": "none",
-  "reportOptionalIterable": "none",
-  "reportGeneralTypeIssues": "none",
-  "reportUnknownMemberType": "none",
-  "reportUnknownVariableType": "none",
-  "reportUnknownArgumentType": "none"
+  "venv": ".venv"
 }

@@ -1,6 +1,7 @@
 import { v4, v4 as uuidv4 } from "uuid";
 import useAuthStore from "../store/authStore.ts";
 import useSessionStore from "../store/sessionStore.ts";
+import type { ToolTrace } from "../entities/Message.ts";
 import { z } from "zod/v4";
 import { useEffect, useRef } from "react";
 import useSessions from "./useSessions.ts";
@@ -106,6 +107,7 @@ const useMessage = () => {
     let accumulatedContent = "";
     let sources: Doc[] = [];
     let isStreamComplete = false;
+    let currentToolTraces: ToolTrace[] = [];
 
     // BEFORE streaming
     const kb_id = useSessionStore.getState().kb_id;
@@ -256,14 +258,94 @@ const useMessage = () => {
                     break;
                   }
 
+                  case "tool_call": {
+                    const toolName = data.tool || data.name || "tool";
+                    const toolId =
+                      data.id || `${toolName}-${currentToolTraces.length}`;
+                    const existing = currentToolTraces.find(
+                      (t) => t.id === toolId,
+                    );
+                    if (!existing) {
+                      currentToolTraces = [
+                        ...currentToolTraces,
+                        {
+                          id: toolId,
+                          name: toolName,
+                          args: data.args || {},
+                          status: "running",
+                        },
+                      ];
+                      updateMessage(assistantMsgId, {
+                        tool_traces: [...currentToolTraces],
+                        isStreaming: true,
+                      });
+                    }
+                    break;
+                  }
+
+                  case "tool_result": {
+                    const toolId = data.id || data.tool_call_id;
+                    const toolName = data.tool || data.name;
+                    let found = false;
+                    currentToolTraces = currentToolTraces.map((trace) => {
+                      if (
+                        (toolId && trace.id === toolId) ||
+                        (!found &&
+                          toolName &&
+                          trace.name === toolName &&
+                          trace.status === "running")
+                      ) {
+                        found = true;
+                        return {
+                          ...trace,
+                          summary: data.summary || trace.summary,
+                          status: (data.status === "error"
+                            ? "error"
+                            : "completed") as "running" | "completed" | "error",
+                        };
+                      }
+                      return trace;
+                    });
+                    if (!found && toolName) {
+                      currentToolTraces = [
+                        ...currentToolTraces,
+                        {
+                          id:
+                            toolId || `${toolName}-${currentToolTraces.length}`,
+                          name: toolName,
+                          summary: data.summary,
+                          status: (data.status === "error"
+                            ? "error"
+                            : "completed") as "running" | "completed" | "error",
+                        },
+                      ];
+                    }
+                    updateMessage(assistantMsgId, {
+                      tool_traces: [...currentToolTraces],
+                      isStreaming: true,
+                    });
+                    break;
+                  }
+
                   case "done":
                     isStreamComplete = true;
 
-                    // Final update with complete content and sources
+                    // Mark any running tools as completed
+                    currentToolTraces = currentToolTraces.map((t) =>
+                      t.status === "running"
+                        ? { ...t, status: "completed" }
+                        : t,
+                    );
+
+                    // Final update with complete content, sources, and tool traces
                     updateMessage(assistantMsgId, {
                       content: data.content,
                       isStreaming: false,
                       sources: sources.length > 0 ? sources : undefined,
+                      tool_traces:
+                        currentToolTraces.length > 0
+                          ? currentToolTraces
+                          : undefined,
                     });
                     break;
 

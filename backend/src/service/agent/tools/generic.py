@@ -1,6 +1,7 @@
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.language_models import BaseChatModel
 
+
 class GenericTools:
     def __init__(
         self,

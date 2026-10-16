@@ -2,10 +2,23 @@
 from pathlib import Path
 from typing import Any, Dict
 
-from codegraphcontext.utils.debug_log import warning_logger
-from codegraphcontext.utils.tree_sitter_manager import execute_query
+from loguru import logger
 
-from .typescript import TypescriptTreeSitterParser
+
+def warning_logger(msg: str) -> None:
+    logger.warning(msg)
+
+
+def execute_query(language: Any, query_str: str, root_node: Any):
+    from tree_sitter import Query, QueryCursor
+
+    query = Query(language, query_str)
+    cursor = QueryCursor(query)
+    return cursor.captures(root_node)
+
+
+class TypescriptTreeSitterParser:
+    pass
 
 
 def pre_scan_typescript(files: list[Path], parser_wrapper) -> dict:

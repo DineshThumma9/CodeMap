@@ -3,10 +3,11 @@ import json
 import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from loguru import logger
-from sqlalchemy import select
+from sqlmodel import col, select
 
 from src.db.dbs import get_async_session
 from src.db.redisdb import aredis as redis_client
@@ -53,8 +54,8 @@ _MCP_CLIENT_CACHE = AsyncLRUCache(maxsize=50)
 
 
 class MCPService:
-    def __init__(self, user_id: str):
-        self.user_id = user_id
+    def __init__(self, user_id: str | UUID):
+        self.user_id = str(user_id)
         self.client: Optional[MultiServerMCPClient] = None
         self.client_config: Optional[Dict[str, Any]] = None
         self.crypto = CryptoService()
@@ -80,7 +81,7 @@ class MCPService:
         else:
             async with get_async_session() as db:
                 stmt = select(UserMCPConfig).where(
-                    UserMCPConfig.user_id == self.user_id
+                    col(UserMCPConfig.user_id) == self.user_id
                 )
                 result = await db.execute(stmt)
                 user_mcp_configs = result.scalars().all()

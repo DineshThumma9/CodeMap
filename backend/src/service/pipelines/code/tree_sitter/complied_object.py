@@ -87,7 +87,12 @@ class CompiledObjectProcessor:
                 else getattr(items, field, None)
             )
             start, end = get_span_bytes(span)
-            if start is not None and end is not None and start != end:
+            if (
+                start is not None
+                and end is not None
+                and start != end
+                and self.raw_source
+            ):
                 unpacked[key] = self.raw_source[start:end].decode(
                     "utf-8", errors="replace"
                 )

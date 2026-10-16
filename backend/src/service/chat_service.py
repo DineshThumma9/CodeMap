@@ -1,11 +1,10 @@
-import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from src.db import dbs
 from src.db.redisdb import aredis as redis_client
@@ -17,7 +16,10 @@ from src.models.models import Session as DBSession
 def update_kb(kb_id: str, status: KBStatus) -> None:
     """Sync — called from Celery tasks which cannot use AsyncSession."""
     with dbs.get_task_db() as db:
-        result = db.execute(select(KnowledgeBase).where(KnowledgeBase.kb_id == kb_id))
+        kb_uuid = UUID(kb_id) if isinstance(kb_id, str) else kb_id
+        result = db.execute(
+            select(KnowledgeBase).where(col(KnowledgeBase.kb_id) == kb_uuid)
+        )
         kb = result.scalars().first()
         if kb:
             kb.status = status
@@ -39,8 +41,8 @@ class ChatService:
 
             await self.db.execute(
                 update(DBSession)
-                .where(DBSession.session_id == session_uuid)
-                .values(updated_at=datetime.utcnow())
+                .where(col(DBSession.session_id) == session_uuid)
+                .values(updated_at=datetime.now(timezone.utc))
             )
             await self.db.commit()
             await self.db.refresh(message)
@@ -60,11 +62,14 @@ class ChatService:
     ):
         """Ensures that the knowledge base exists in PostgreSQL and links it to the Session."""
         try:
-            session_uuid = uuid.UUID(session_id)
+            session_uuid = (
+                UUID(session_id) if isinstance(session_id, str) else session_id
+            )
+            kb_uuid = UUID(kb_id) if isinstance(kb_id, str) else kb_id
 
             # 1. First, find the session to get the user_id
             result = await self.db.execute(
-                select(DBSession).where(DBSession.session_id == session_uuid)
+                select(DBSession).where(col(DBSession.session_id) == session_uuid)
             )
             db_session = result.scalars().first()
 
@@ -76,25 +81,25 @@ class ChatService:
 
             # 2. Ensure KnowledgeBase row exists FIRST to avoid FK violations on autoflush
             result = await self.db.execute(
-                select(KnowledgeBase).where(KnowledgeBase.kb_id == kb_id)
+                select(KnowledgeBase).where(col(KnowledgeBase.kb_id) == kb_uuid)
             )
             kb = result.scalars().first()
 
             if not kb:
                 kb = KnowledgeBase(
-                    kb_id=kb_id,
+                    kb_id=kb_uuid,
                     user_id=db_session.user_id,
                     source_type=source_type,
                     source_ref=source_ref,
                     status=KBStatus.PENDING,
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                 )
                 self.db.add(kb)
                 # Flush here to guarantee the KB exists before we link the session
                 await self.db.flush()
 
             # 3. Now link the Session to this KB
-            db_session.kb_id = kb_id
+            db_session.kb_id = kb_uuid
             self.db.add(db_session)
 
             await self.db.commit()

@@ -3,6 +3,7 @@ import re
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 from src.models.code_schema import GraphEntity, GraphRelation
 from src.models.schema import GitRequest
@@ -22,7 +23,13 @@ def name_from_symbol(symbol: str) -> str:
 
 
 class SCIPPipeline(CodePipeline):
-    def __init__(self, req: GitRequest, kb_id: str, branch: str, token: str):
+    def __init__(
+        self,
+        req: GitRequest,
+        kb_id: str,
+        branch: Optional[str] = None,
+        token: Optional[str] = None,
+    ):
         super().__init__(req, kb_id, branch, token)
 
     def extract(self):
@@ -37,6 +44,10 @@ class SCIPPipeline(CodePipeline):
     def combine(self) -> None:
         """Run SCIP CLI, write graph, supplement with Tree-sitter, write SCIP CALLS edges."""
 
+        if not self.tmp_dir:
+            logger.warning("[SCIP] No tmp_dir available, skipping SCIP combine.")
+            return
+
         path = Path(self.tmp_dir)
         index_root = path.resolve()
 
@@ -44,7 +55,9 @@ class SCIPPipeline(CodePipeline):
         lang_counts = {}
         for f in self.processed_code:
             lang_counts[f.language] = lang_counts.get(f.language, 0) + 1
-        lang = max(lang_counts, key=lang_counts.get) if lang_counts else "python"
+        lang = (
+            max(lang_counts, key=lambda k: lang_counts[k]) if lang_counts else "python"
+        )
 
         try:
             with tempfile.TemporaryDirectory(prefix="out") as tmpdir:
@@ -92,6 +105,8 @@ class SCIPPipeline(CodePipeline):
 
                 # Process SCIP Classes
                 for cls in file_data.classes:
+                    if not cls.name:
+                        continue
                     node_id = f"{rel_path}:{cls.name}"
                     target_result.entities.append(
                         GraphEntity(
@@ -111,7 +126,10 @@ class SCIPPipeline(CodePipeline):
                 for category in ["structs", "traits", "interfaces", "enums"]:
                     items = getattr(file_data, category, [])
                     for item in items:
-                        node_id = f"{rel_path}:{item.name}"
+                        item_name = getattr(item, "name", None)
+                        if not item_name:
+                            continue
+                        node_id = f"{rel_path}:{item_name}"
                         # Derive kind string: e.g. "structs" -> "Struct"
                         kind_str = (
                             category.capitalize()[:-1]
@@ -121,7 +139,7 @@ class SCIPPipeline(CodePipeline):
                         target_result.entities.append(
                             GraphEntity(
                                 node_id=node_id,
-                                name=item.name,
+                                name=item_name,
                                 kind=kind_str,
                                 parent_id=rel_path,
                             )
@@ -136,6 +154,8 @@ class SCIPPipeline(CodePipeline):
 
                 # Process SCIP Functions
                 for fn in file_data.functions:
+                    if not fn.name:
+                        continue
                     node_id = f"{rel_path}:{fn.name}"
                     target_result.entities.append(
                         GraphEntity(

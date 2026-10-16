@@ -1,20 +1,22 @@
 import re
-from typing import Any, List, Literal, Optional
+from collections import defaultdict
+from typing import Any, List, Literal
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import StructuredTool
-from langchain_groq import ChatGroq as Groq 
-from langchain_falkordb import FalkorDBQAChain as GraphCypherQAChain, FalkorDBGraph
+from langchain_falkordb import FalkorDBGraph
+from langchain_falkordb import FalkorDBQAChain as GraphCypherQAChain
+from langchain_groq import ChatGroq as Groq
 from loguru import logger
 from qdrant_client.http import models
+
 from src.config.settings import settings
-from src.service.agent.prompts import CYPHER_GENERATION_TEMPLATE
 from src.db.vectordb import get_qdrant
+from src.service.agent.prompts import CYPHER_GENERATION_TEMPLATE
 
 
-
-
-async def _resolve_file_id(target: str, graph: Any, falkordb_ns: str | None = None) -> str | None:
+async def _resolve_file_id(target: str, graph: Any) -> str | None:
     """Resolves a partial path or filename to a full file_id instantly."""
     if not graph or not target:
         return None
@@ -47,9 +49,10 @@ def to_dict(result) -> List[dict]:
     if not result or not result.result_set:
         return []
 
-    headers = [col[1] if isinstance(col, (list, tuple)) else str(col) for col in result.header]
+    headers = [
+        col[1] if isinstance(col, (list, tuple)) else str(col) for col in result.header
+    ]
     return [dict(zip(headers, row)) for row in result.result_set]
-
 
 
 class CodeTools:
@@ -71,9 +74,7 @@ class CodeTools:
         self.cypher_chain = None
         if self.graph_obj:
             self.cypher_chain = GraphCypherQAChain.from_llm(
-                llm=Groq(
-                    model=settings.cypher_llm, api_key=settings.groq_api_key
-                ),
+                llm=Groq(model=settings.cypher_llm, api_key=settings.groq_api_key),
                 graph=self.graph_obj,
                 cypher_prompt=PromptTemplate(
                     template=CYPHER_GENERATION_TEMPLATE,
@@ -136,13 +137,28 @@ class CodeTools:
                 coroutine=instance.trace_call_graph,
                 name="trace_call_graph",
                 description=(
-                    "Traces the call graph around a specific function or symbol. "
-                    "Parameter 'direction' controls traversal mode: "
-                    "'upstream' (discovers callers that depend on this symbol), "
-                    "'downstream' (discovers callees that this symbol executes), or "
-                    "'both' (discovers both callers and callees for a complete 360-degree local neighborhood view). "
+                    "Traces the local call graph neighborhood around a specific function or symbol. "
+                    "Parameter 'direction' controls traversal mode: 'upstream' (callers that depend on this symbol), "
+                    "'downstream' (callees that this symbol executes), or 'both' (360-degree local neighborhood view). "
                     "Parameter 'depth' controls traversal depth (1 to 4 hops, default 1). "
-                    "Returns structured callers/callees with hop counts and an explainable Mermaid flowchart."
+                    "Returns structured callers/callees with hop counts and a Mermaid flowchart."
+                ),
+            ),
+            StructuredTool.from_function(
+                coroutine=instance.trace_execution_path,
+                name="trace_execution_path",
+                description=(
+                    "Finds the shortest execution call path between two functions or symbols ('source_symbol' and 'target_symbol') "
+                    "using FalkorDB shortestPath graph traversal. Returns exact hops, intermediate functions, and a visual Mermaid flowchart."
+                ),
+            ),
+            StructuredTool.from_function(
+                coroutine=instance.assess_refactor_risk,
+                name="assess_refactor_risk",
+                description=(
+                    "Assesses multi-hop refactoring risk and blast radius for a given 'symbol' (function, method, or class). "
+                    "Calculates direct callers, transitive dependents (up to 4 hops), risk tier (CRITICAL/HIGH/MEDIUM/LOW), "
+                    "and recommended refactoring action."
                 ),
             ),
             StructuredTool.from_function(
@@ -163,26 +179,6 @@ class CodeTools:
                     "tools would take multiple hops or consume too many tokens."
                 ),
             ),
-            StructuredTool.from_function(
-                coroutine=instance.trace_execution_path,
-                name="trace_execution_path",
-                description=(
-                    "Finds the shortest call path between two functions or symbols ('source_symbol' and 'target_symbol') "
-                    "using FalkorDB shortestPath graph traversal. Returns exact hops, intermediate functions, and a visual Mermaid flowchart."
-                ),
-            ),
-            StructuredTool.from_function(
-                coroutine=instance.analyze_code_graph,
-                name="analyze_code_graph",
-                description=(
-                    "Runs native FalkorDB GraphBLAS algorithms to analyze codebase structure and architecture. "
-                    "Parameter 'mode' must be one of: "
-                    "'pillars' (PageRank authority rankings of core symbols), "
-                    "'bottlenecks' (Betweenness Centrality chokepoints and single points of failure), "
-                    "'subsystems' (Label Propagation community detection of natural modules), or "
-                    "'risk' (computes multi-hop refactor blast radius for a given 'symbol')."
-                ),
-            ),
         ]
 
         return instance
@@ -198,7 +194,9 @@ class CodeTools:
         if not self._require_vector() or not self._require_graph():
             return "<error>No codebase is currently loaded.</error>"
 
-        logger.info(f"🕸️ [FALKORDB GRAPH: get_project_context] Fetching hierarchy & README for graph='{self.falkordb_ns}'...")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: get_project_context] Fetching hierarchy & README for graph='{self.falkordb_ns}'..."
+        )
         context_str = "<project_context>\n"
 
         results = await self.async_falkordb.query(
@@ -218,7 +216,9 @@ class CodeTools:
         )
 
         records = to_dict(results)
-        logger.info(f"🕸️ [FALKORDB GRAPH: get_project_context] Found {len(records)} files in graph")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: get_project_context] Found {len(records)} files in graph"
+        )
 
         if records:
             hierarchy = "\n".join(f"<file path='{r['path']}'/>" for r in records)
@@ -271,7 +271,7 @@ class CodeTools:
                 WHERE n.pagerank IS NOT NULL
                 RETURN coalesce(n.name, split(n.id, ':')[-1]) AS name,
                        n.id AS id,
-                       coalesce(node.kind, 'Symbol') AS kind,
+                       coalesce(n.kind, 'Symbol') AS kind,
                        n.pagerank AS score
                 ORDER BY score DESC LIMIT 5
                 """
@@ -297,27 +297,71 @@ class CodeTools:
                 )
                 context_str += f"\n<foundational_pillars (falkordb_pagerank)>\n{pillars_xml}\n</foundational_pillars>"
 
-            # 3. Subsystem Domains (Label Propagation)
+            # 3. Subsystem Domains (Label Propagation) - Domain clusters with entrypoint & core utility
             comm_res = await self.async_falkordb.query(
                 """
                 MATCH (n:CodeNode)
                 WHERE n.community_id IS NOT NULL
                 RETURN n.community_id AS community,
-                       count(n) AS size,
-                       collect(coalesce(n.name, split(n.id, ':')[-1]))[0..4] AS sample_symbols
-                ORDER BY size DESC LIMIT 4
+                       coalesce(n.name, split(n.id, ':')[-1]) AS name,
+                       n.id AS id,
+                       coalesce(n.kind, 'Symbol') AS kind,
+                       coalesce(n.harmonic, 0.0) AS harmonic,
+                       coalesce(n.pagerank, 0.0) AS pagerank
                 """
             )
-            comm_records = to_dict(comm_res)
-            if comm_records:
-                comm_xml = "\n".join(
-                    f"  <domain id='{r.get('community')}' size='{r.get('size')}' key_symbols='{', '.join(r.get('sample_symbols', []))}' />"
-                    for r in comm_records
+            comm_raw = to_dict(comm_res)
+            if not comm_raw:
+                lp_res = await self.async_falkordb.query(
+                    """
+                    CALL algo.labelPropagation() YIELD node, communityId
+                    RETURN communityId AS community,
+                           coalesce(node.name, split(node.id, ':')[-1]) AS name,
+                           node.id AS id,
+                           coalesce(node.kind, 'Symbol') AS kind,
+                           coalesce(node.harmonic, 0.0) AS harmonic,
+                           coalesce(node.pagerank, 0.0) AS pagerank
+                    """
                 )
-                context_str += f"\n<subsystem_domains (label_propagation)>\n{comm_xml}\n</subsystem_domains>"
+                comm_raw = to_dict(lp_res)
+
+            if comm_raw:
+                comm_map: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+                for item in comm_raw:
+                    comm_map[item["community"]].append(item)
+
+                sorted_domains = sorted(
+                    comm_map.items(), key=lambda kv: len(kv[1]), reverse=True
+                )[:5]
+                domain_lines = []
+                for cid, members in sorted_domains:
+                    best_entry = max(
+                        members, key=lambda m: float(m.get("harmonic") or 0.0)
+                    )
+                    best_util = max(
+                        members, key=lambda m: float(m.get("pagerank") or 0.0)
+                    )
+                    samples = ", ".join([str(m["name"]) for m in members[:5]])
+                    e_name = best_entry.get("name")
+                    e_score = round(float(best_entry.get("harmonic") or 0.0), 2)
+                    u_name = best_util.get("name")
+                    u_score = round(float(best_util.get("pagerank") or 0.0), 4)
+                    domain_lines.append(
+                        f"  <domain id='{cid}' size='{len(members)}' "
+                        f"main_entrypoint='{e_name} (harmonic={e_score})' "
+                        f"core_utility='{u_name} (pagerank={u_score})' "
+                        f"key_symbols='{samples}' />"
+                    )
+                context_str += (
+                    "\n<subsystem_domains (architectural_clusters)>\n"
+                    + "\n".join(domain_lines)
+                    + "\n</subsystem_domains>"
+                )
 
         except Exception as e:
-            logger.debug(f"[FALKORDB GRAPH: get_project_context] GraphBLAS enrichment query skipped: {e}")
+            logger.debug(
+                f"[FALKORDB GRAPH: get_project_context] GraphBLAS enrichment query skipped: {e}"
+            )
 
         context_str += "\n</project_context>"
         return context_str
@@ -328,7 +372,9 @@ class CodeTools:
             return "<error>No codebase is currently loaded.</error>"
 
         limit = min(limit, 50)
-        logger.info(f"🕸️ [FALKORDB GRAPH: explore_codebase] Exploring path='{path}', limit={limit}...")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: explore_codebase] Exploring path='{path}', limit={limit}..."
+        )
 
         results = await self.async_falkordb.query(
             """
@@ -339,7 +385,9 @@ class CodeTools:
             {"path": path, "limit": limit},
         )
         records = to_dict(results)
-        logger.info(f"🕸️ [FALKORDB GRAPH: explore_codebase] Returned {len(records)} entries from FalkorDB graph")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: explore_codebase] Returned {len(records)} entries from FalkorDB graph"
+        )
 
         if not records:
             return f"<result>No files found matching path '{path}'.</result>"
@@ -365,21 +413,26 @@ class CodeTools:
         clean_kw = keyword.replace('"', "").strip()
         limit = min(limit, 50)
         records = []
-        logger.info(f"🕸️ [FALKORDB GRAPH: search_syntax] Searching syntax for '{clean_kw}', limit={limit}...")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: search_syntax] Searching syntax for '{clean_kw}', limit={limit}..."
+        )
 
         try:
             result = await self.async_falkordb.query(
                 """
                 CALL db.idx.fulltext.queryNodes('CodeNode', $query)
                 YIELD node, score
-                RETURN node.kind AS kind, node.name AS name, node.id AS id
-                ORDER BY score DESC LIMIT $limit
+                WITH node, score, (coalesce(node.pagerank, 0.0) + coalesce(node.betweenness, 0.0)) AS authority
+                RETURN node.kind AS kind, node.name AS name, node.id AS id, authority
+                ORDER BY authority DESC, score DESC LIMIT $limit
                 """,
                 {"query": f"{clean_kw}*", "limit": limit},
             )
             records = to_dict(result)
         except Exception as e:
-            logger.debug(f"[FALKORDB GRAPH: search_syntax] Fulltext query fallback: {e}")
+            logger.debug(
+                f"[FALKORDB GRAPH: search_syntax] Fulltext query fallback: {e}"
+            )
             records = []
 
         if not records:
@@ -388,21 +441,29 @@ class CodeTools:
                 MATCH (node:CodeNode)
                 WHERE toLower(node.name) CONTAINS toLower($kw)
                    OR toLower(node.id) CONTAINS toLower($kw)
-                RETURN node.kind AS kind, node.name AS name, node.id AS id
+                WITH node, (coalesce(node.pagerank, 0.0) + coalesce(node.betweenness, 0.0)) AS authority
+                RETURN node.kind AS kind, node.name AS name, node.id AS id, authority
+                ORDER BY authority DESC, node.id ASC
                 LIMIT $limit
                 """,
                 {"kw": clean_kw, "limit": limit},
             )
             records = to_dict(result)
 
-        logger.info(f"🕸️ [FALKORDB GRAPH: search_syntax] Found {len(records)} syntax matches in FalkorDB graph")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: search_syntax] Found {len(records)} syntax matches in FalkorDB graph"
+        )
 
         if not records:
             return f"<result>No exact or close syntax matches found for '{keyword}'.</result>"
 
         output = ["<syntax_search_results>"]
         for r in records:
-            output.append(f"  <match kind='{r['kind']}' name='{r['name']}' path='{r['id']}' />")
+            auth_val = r.get("authority")
+            auth_str = f" authority='{round(float(auth_val), 4)}'" if auth_val else ""
+            output.append(
+                f"  <match kind='{r['kind']}' name='{r['name']}' path='{r['id']}'{auth_str} />"
+            )
         output.append("</syntax_search_results>")
 
         return "\n".join(output)
@@ -414,7 +475,7 @@ class CodeTools:
         if not path or not path.strip():
             return "<error>'path' must not be empty.</error>"
 
-        actual = await _resolve_file_id(path, self.async_falkordb, self.falkordb_ns)
+        actual = await _resolve_file_id(path, self.async_falkordb)
         if not actual:
             return f"<error>File not found: '{path}'. Use explore_codebase to browse available files.</error>"
 
@@ -495,11 +556,11 @@ class CodeTools:
         direction: Literal["upstream", "downstream", "both"] = "upstream",
         depth: int = 1,
     ) -> str:
-        """Traces the call graph around a specific symbol (function, method, or class).
-        - direction='upstream': Finds callers (functions that call 'symbol') up to 'depth' hops.
-        - direction='downstream': Finds callees (functions called by 'symbol') up to 'depth' hops.
-        - direction='both': Finds both callers and callees simultaneously (360-degree local neighborhood).
-        Supports variable traversal 'depth' (1 to 4 hops, default 1).
+        """Traces the local call graph neighborhood around a specific symbol (function, method, or class).
+        - direction='upstream': Discovers callers that depend on this symbol up to 'depth' hops.
+        - direction='downstream': Discovers callees that this symbol executes up to 'depth' hops.
+        - direction='both': Discovers both callers and callees for a complete 360-degree local neighborhood view.
+        Parameter 'depth' controls traversal depth (1 to 4 hops, default 1).
         """
         if not self._require_graph():
             return "<error>No codebase is currently loaded.</error>"
@@ -520,7 +581,9 @@ class CodeTools:
         if dir_norm not in ("upstream", "downstream", "both"):
             dir_norm = "upstream"
 
-        logger.info(f"🕸️ [FALKORDB GRAPH: trace_call_graph] Tracing '{clean_sym}' direction={dir_norm} depth={depth}...")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: trace_call_graph] Tracing '{clean_sym}' direction={dir_norm} depth={depth}..."
+        )
 
         callers: list[dict[str, Any]] = []
         callees: list[dict[str, Any]] = []
@@ -560,7 +623,7 @@ class CodeTools:
                        target.id AS id,
                        coalesce(target.kind, "Function") AS kind,
                        1 AS hops
-                ORDER BY name ASC
+                ORDER BY name ASCyes 
                 LIMIT 40
                 """
             else:
@@ -582,24 +645,38 @@ class CodeTools:
 
         lines: list[str] = []
         if dir_norm == "upstream":
-            lines.append(f"<callers_of symbol='{clean_sym}' depth='{depth}' total='{len(callers)}'>")
+            lines.append(
+                f"<callers_of symbol='{clean_sym}' depth='{depth}' total='{len(callers)}'>"
+            )
             for r in callers:
-                lines.append(f"  <caller name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />")
+                lines.append(
+                    f"  <caller name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />"
+                )
             lines.append("</callers_of>")
         elif dir_norm == "downstream":
-            lines.append(f"<callees_of symbol='{clean_sym}' depth='{depth}' total='{len(callees)}'>")
+            lines.append(
+                f"<callees_of symbol='{clean_sym}' depth='{depth}' total='{len(callees)}'>"
+            )
             for r in callees:
-                lines.append(f"  <callee name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />")
+                lines.append(
+                    f"  <callee name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />"
+                )
             lines.append("</callees_of>")
         else:
-            lines.append(f"<call_neighborhood symbol='{clean_sym}' depth='{depth}' callers_count='{len(callers)}' callees_count='{len(callees)}'>")
+            lines.append(
+                f"<call_neighborhood symbol='{clean_sym}' depth='{depth}' callers_count='{len(callers)}' callees_count='{len(callees)}'>"
+            )
             lines.append("  <upstream_callers>")
             for r in callers:
-                lines.append(f"    <caller name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />")
+                lines.append(
+                    f"    <caller name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />"
+                )
             lines.append("  </upstream_callers>")
             lines.append("  <downstream_callees>")
             for r in callees:
-                lines.append(f"    <callee name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />")
+                lines.append(
+                    f"    <callee name='{r.get('name')}' id='{r.get('id')}' kind='{r.get('kind')}' hops='{r.get('hops', 1)}' />"
+                )
             lines.append("  </downstream_callees>")
             lines.append("</call_neighborhood>")
 
@@ -617,12 +694,16 @@ class CodeTools:
         # Render top callers (up to 8)
         for r in callers[:8]:
             cid = f"up_{clean_id(str(r.get('id', r.get('name'))))}"
-            mermaid_lines.append(f'  {cid}["{clean_lbl(str(r.get("name")))}"] -->|CALLS| {center_id}')
+            mermaid_lines.append(
+                f'  {cid}["{clean_lbl(str(r.get("name")))}"] -->|CALLS| {center_id}'
+            )
 
         # Render top callees (up to 8)
         for r in callees[:8]:
             did = f"down_{clean_id(str(r.get('id', r.get('name'))))}"
-            mermaid_lines.append(f'  {center_id} -->|CALLS| {did}["{clean_lbl(str(r.get("name")))}"]')
+            mermaid_lines.append(
+                f'  {center_id} -->|CALLS| {did}["{clean_lbl(str(r.get("name")))}"]'
+            )
 
         mermaid_lines.append("```")
         lines.append("\n".join(mermaid_lines))
@@ -642,9 +723,15 @@ class CodeTools:
 
         results = []
         for d in docs:
-            results.append(f"  <chunk file='{d.metadata.get('file_path', '?')}'>\n<![CDATA[\n{d.page_content}\n]]>\n  </chunk>")
-        
-        return "<semantic_search_results>\n" + "\n".join(results) + "\n</semantic_search_results>"
+            results.append(
+                f"  <chunk file='{d.metadata.get('file_path', '?')}'>\n<![CDATA[\n{d.page_content}\n]]>\n  </chunk>"
+            )
+
+        return (
+            "<semantic_search_results>\n"
+            + "\n".join(results)
+            + "\n</semantic_search_results>"
+        )
 
     async def ask_architecture(self, query: str) -> str:
         """Natural-language architecture queries backed by GraphCypherQAChain."""
@@ -655,10 +742,14 @@ class CodeTools:
         if not self.cypher_chain:
             return "<error>Architecture query is unavailable (graph not configured).</error>"
 
-        logger.info(f"🕸️ [FALKORDB GRAPH: ask_architecture] Invoking Cypher QA chain for query='{query}'...")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: ask_architecture] Invoking Cypher QA chain for query='{query}'..."
+        )
         try:
             result = await self.cypher_chain.ainvoke({"query": query})
-            logger.info("🕸️ [FALKORDB GRAPH: ask_architecture] Cypher QA chain answered successfully")
+            logger.info(
+                "🕸️ [FALKORDB GRAPH: ask_architecture] Cypher QA chain answered successfully"
+            )
             return f"<architecture_result>\n{result.get('result', result)}\n</architecture_result>"
         except Exception as e:
             error_str = str(e)
@@ -676,9 +767,13 @@ class CodeTools:
         src = source_symbol.strip()
         tgt = target_symbol.strip()
         if not src or not tgt:
-            return "<error>'source_symbol' and 'target_symbol' must not be empty.</error>"
+            return (
+                "<error>'source_symbol' and 'target_symbol' must not be empty.</error>"
+            )
 
-        logger.info(f"🕸️ [FALKORDB GRAPH: trace_execution_path] Tracing shortest path from '{src}' to '{tgt}'...")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: trace_execution_path] Tracing shortest path from '{src}' to '{tgt}'..."
+        )
 
         # 1. Try directed CALLS path
         query_directed = """
@@ -713,7 +808,9 @@ class CodeTools:
             ORDER BY hops ASC
             LIMIT 1
             """
-            res_rev = await self.async_falkordb.query(query_reverse, {"src": src, "tgt": tgt})
+            res_rev = await self.async_falkordb.query(
+                query_reverse, {"src": src, "tgt": tgt}
+            )
             records = to_dict(res_rev)
             if records:
                 direction = "reverse"
@@ -733,13 +830,17 @@ class CodeTools:
             ORDER BY hops ASC
             LIMIT 1
             """
-            res_undir = await self.async_falkordb.query(query_undirected, {"src": src, "tgt": tgt})
+            res_undir = await self.async_falkordb.query(
+                query_undirected, {"src": src, "tgt": tgt}
+            )
             records = to_dict(res_undir)
             if records:
                 direction = "structural"
 
         if not records:
-            logger.info(f"🕸️ [FALKORDB GRAPH: trace_execution_path] No path found between '{src}' and '{tgt}'")
+            logger.info(
+                f"🕸️ [FALKORDB GRAPH: trace_execution_path] No path found between '{src}' and '{tgt}'"
+            )
             return f"<result>No connected path found between '{src}' and '{tgt}' in the graph.</result>"
 
         r = records[0]
@@ -756,7 +857,7 @@ class CodeTools:
             mermaid_lines.append(f'  n{i}["{clean_name}\\n({kind_str})"]')
         for i in range(len(names) - 1):
             rel_label = "CALLS" if direction != "structural" else "CONNECTED"
-            mermaid_lines.append(f"  n{i} -->|{rel_label}| n{i+1}")
+            mermaid_lines.append(f"  n{i} -->|{rel_label}| n{i + 1}")
         mermaid_lines.append("```")
         mermaid_block = "\n".join(mermaid_lines)
 
@@ -765,7 +866,7 @@ class CodeTools:
         for i in range(len(names)):
             kind_str = kinds[i] if i < len(kinds) else "Symbol"
             id_str = ids[i] if i < len(ids) else names[i]
-            path_steps.append(f"  {i+1}. [{kind_str}] {names[i]} ({id_str})")
+            path_steps.append(f"  {i + 1}. [{kind_str}] {names[i]} ({id_str})")
 
         note = ""
         if direction == "reverse":
@@ -777,180 +878,80 @@ class CodeTools:
             f"<execution_path source='{src}' target='{tgt}' hops='{hops}' direction='{direction}'>\n"
             f"FalkorDB verified path with {hops} hops{note}:\n\n"
             f"{mermaid_block}\n\n"
-            f"Step-by-step trace:\n"
-            + "\n".join(path_steps)
-            + "\n</execution_path>"
+            f"Step-by-step trace:\n" + "\n".join(path_steps) + "\n</execution_path>"
         )
-        logger.info(f"🕸️ [FALKORDB GRAPH: trace_execution_path] Found {hops}-hop path ({direction})")
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: trace_execution_path] Found {hops}-hop path ({direction})"
+        )
         return output
 
-    async def analyze_code_graph(self, mode: str = "pillars", symbol: str | None = None, limit: int = 10) -> str:
-        """Runs native FalkorDB GraphBLAS algorithms (PageRank, Betweenness Centrality, Label Propagation, Blast Radius)."""
+    async def assess_refactor_risk(self, symbol: str) -> str:
+        """Assesses multi-hop refactoring risk and blast radius for a given 'symbol' (function, method, or class).
+        Calculates direct callers, transitive dependents (up to 4 hops), risk tier (CRITICAL/HIGH/MEDIUM/LOW),
+        and recommended refactoring action.
+        """
         if not self._require_graph():
             return "<error>No codebase is currently loaded.</error>"
 
-        clean_mode = (mode or "pillars").lower().strip()
-        limit = min(max(int(limit), 1), 50)
-        logger.info(f"🕸️ [FALKORDB GRAPH: analyze_code_graph] Running mode='{clean_mode}' limit={limit}...")
+        clean_sym = symbol.strip()
+        if not clean_sym:
+            return "<error>'symbol' must not be empty.</error>"
 
-        if clean_mode in ("pillars", "pagerank", "authority"):
-            res = await self.async_falkordb.query(
-                """
-                CALL algo.pageRank('CodeNode', 'CALLS') YIELD node, score
-                RETURN coalesce(node.name, split(node.id, ':')[-1]) AS name,
-                       node.id AS id,
-                       coalesce(node.kind, 'Symbol') AS kind,
-                       score
-                ORDER BY score DESC LIMIT $limit
-                """,
-                {"limit": limit},
+        logger.info(
+            f"🕸️ [FALKORDB GRAPH: assess_refactor_risk] Assessing blast radius for '{clean_sym}'..."
+        )
+
+        # 1. Direct callers count & sample
+        q_direct = """
+        MATCH (c:CodeNode)-[:CALLS]->(t:CodeNode)
+        WHERE (t.name = $sym OR t.id = $sym OR t.id ENDS WITH (":" + $sym))
+        RETURN count(DISTINCT c) AS direct_callers,
+               collect(DISTINCT coalesce(c.name, split(c.id, ":")[-1]))[0..10] AS direct_list
+        """
+        res_dir = await self.async_falkordb.query(q_direct, {"sym": clean_sym})
+        dir_recs = to_dict(res_dir)
+        direct_count = dir_recs[0].get("direct_callers", 0) if dir_recs else 0
+        direct_list = dir_recs[0].get("direct_list", []) if dir_recs else []
+
+        # 2. Transitive blast radius (1..4 hops)
+        q_trans = """
+        MATCH (c:CodeNode)-[:CALLS*1..4]->(t:CodeNode)
+        WHERE (t.name = $sym OR t.id = $sym OR t.id ENDS WITH (":" + $sym))
+        RETURN count(DISTINCT c) AS blast_radius,
+               collect(DISTINCT coalesce(c.name, split(c.id, ":")[-1]))[0..12] AS dependents
+        """
+        res_trans = await self.async_falkordb.query(q_trans, {"sym": clean_sym})
+        trans_recs = to_dict(res_trans)
+        blast_radius = trans_recs[0].get("blast_radius", 0) if trans_recs else 0
+        dependents = trans_recs[0].get("dependents", []) if trans_recs else []
+
+        # 3. Categorize Risk
+        if blast_radius >= 12 or direct_count >= 6:
+            risk_tier = "CRITICAL"
+            action_advice = "Modifying this symbol will break multiple modules. Comprehensive regression test required."
+        elif blast_radius >= 6 or direct_count >= 3:
+            risk_tier = "HIGH"
+            action_advice = (
+                "Heavy downstream dependency. Coordinate changes across caller files."
             )
-            records = to_dict(res)
-            if not records:
-                return "<result>No PageRank results available (graph may lack CALLS relationships).</result>"
-
-            lines = ["<architectural_pillars algorithm='FalkorDB PageRank'>"]
-            for r in records:
-                score_val = round(float(r.get("score", 0)), 5)
-                lines.append(f"  <pillar name='{r.get('name')}' kind='{r.get('kind')}' id='{r.get('id')}' pagerank_score='{score_val}' />")
-            lines.append("</architectural_pillars>")
-            return "\n".join(lines)
-
-        elif clean_mode in ("bottlenecks", "chokepoints", "spof", "centrality"):
-            res = await self.async_falkordb.query(
-                """
-                CALL algo.betweenness() YIELD node, score
-                WHERE score > 0
-                RETURN coalesce(node.name, split(node.id, ':')[-1]) AS name,
-                       node.id AS id,
-                       coalesce(node.kind, 'Symbol') AS kind,
-                       score
-                ORDER BY score DESC LIMIT $limit
-                """,
-                {"limit": limit},
-            )
-            records = to_dict(res)
-            if not records:
-                # If no bridge has score > 0, return top nodes with highest incoming/outgoing call degrees
-                res_deg = await self.async_falkordb.query(
-                    """
-                    MATCH (n:CodeNode)
-                    OPTIONAL MATCH (in_c:CodeNode)-[:CALLS]->(n)
-                    OPTIONAL MATCH (n)-[:CALLS]->(out_c:CodeNode)
-                    WITH n, count(DISTINCT in_c) AS in_degree, count(DISTINCT out_c) AS out_degree
-                    WHERE in_degree > 0 OR out_degree > 0
-                    RETURN coalesce(n.name, split(n.id, ':')[-1]) AS name,
-                           n.id AS id,
-                           coalesce(n.kind, 'Symbol') AS kind,
-                           in_degree,
-                           out_degree,
-                           (in_degree * out_degree) AS bridge_score
-                    ORDER BY bridge_score DESC, in_degree DESC LIMIT $limit
-                    """,
-                    {"limit": limit},
-                )
-                records = to_dict(res_deg)
-                lines = ["<chokepoint_analysis algorithm='Call Degree Centrality'>"]
-                for r in records:
-                    lines.append(
-                        f"  <chokepoint name='{r.get('name')}' kind='{r.get('kind')}' id='{r.get('id')}' "
-                        f"in_callers='{r.get('in_degree')}' out_callees='{r.get('out_degree')}' />"
-                    )
-                lines.append("</chokepoint_analysis>")
-                return "\n".join(lines)
-
-            lines = ["<chokepoint_analysis algorithm='FalkorDB Betweenness Centrality'>"]
-            for r in records:
-                score_val = round(float(r.get("score", 0)), 4)
-                lines.append(f"  <bottleneck name='{r.get('name')}' kind='{r.get('kind')}' id='{r.get('id')}' betweenness_score='{score_val}' />")
-            lines.append("</chokepoint_analysis>")
-            return "\n".join(lines)
-
-        elif clean_mode in ("subsystems", "communities", "modules", "clusters"):
-            res = await self.async_falkordb.query(
-                """
-                CALL algo.labelPropagation() YIELD node, communityId
-                RETURN communityId,
-                       count(node) AS size,
-                       collect(coalesce(node.name, split(node.id, ':')[-1]))[0..6] AS sample_symbols
-                ORDER BY size DESC LIMIT $limit
-                """,
-                {"limit": limit},
-            )
-            records = to_dict(res)
-            if not records:
-                return "<result>No community detection results available.</result>"
-
-            lines = ["<subsystem_clusters algorithm='FalkorDB Label Propagation'>"]
-            for r in records:
-                cid = r.get("communityId")
-                size = r.get("size")
-                samples = ", ".join(r.get("sample_symbols", []))
-                lines.append(f"  <subsystem id='{cid}' node_count='{size}' key_symbols='{samples}' />")
-            lines.append("</subsystem_clusters>")
-            return "\n".join(lines)
-
-        elif clean_mode in ("risk", "blast_radius", "refactor_risk"):
-            if not symbol or not symbol.strip():
-                return "<error>Mode 'risk' requires a 'symbol' parameter to assess blast radius.</error>"
-            clean_sym = symbol.strip()
-
-            # 1. Direct callers count
-            q_direct = """
-            MATCH (c:CodeNode)-[:CALLS]->(t:CodeNode)
-            WHERE (t.name = $sym OR t.id = $sym OR t.id ENDS WITH (":" + $sym))
-            RETURN count(DISTINCT c) AS direct_callers,
-                   collect(DISTINCT coalesce(c.name, split(c.id, ":")[-1]))[0..10] AS direct_list
-            """
-            res_dir = await self.async_falkordb.query(q_direct, {"sym": clean_sym})
-            dir_recs = to_dict(res_dir)
-            direct_count = dir_recs[0].get("direct_callers", 0) if dir_recs else 0
-            direct_list = dir_recs[0].get("direct_list", []) if dir_recs else []
-
-            # 2. Transitive blast radius (1..4 hops)
-            q_trans = """
-            MATCH (c:CodeNode)-[:CALLS*1..4]->(t:CodeNode)
-            WHERE (t.name = $sym OR t.id = $sym OR t.id ENDS WITH (":" + $sym))
-            RETURN count(DISTINCT c) AS blast_radius,
-                   collect(DISTINCT coalesce(c.name, split(c.id, ":")[-1]))[0..12] AS dependents
-            """
-            res_trans = await self.async_falkordb.query(q_trans, {"sym": clean_sym})
-            trans_recs = to_dict(res_trans)
-            blast_radius = trans_recs[0].get("blast_radius", 0) if trans_recs else 0
-            dependents = trans_recs[0].get("dependents", []) if trans_recs else []
-
-            # 3. Categorize Risk
-            if blast_radius >= 12 or direct_count >= 6:
-                risk_tier = "CRITICAL"
-                action_advice = "Modifying this symbol will break multiple modules. Comprehensive regression test required."
-            elif blast_radius >= 6 or direct_count >= 3:
-                risk_tier = "HIGH"
-                action_advice = "Heavy downstream dependency. Coordinate changes across caller files."
-            elif blast_radius >= 2:
-                risk_tier = "MEDIUM"
-                action_advice = "Moderate caller footprint. Verify direct callers before altering signature."
-            elif blast_radius == 1:
-                risk_tier = "LOW"
-                action_advice = "Isolated symbol with 1 dependent caller."
-            else:
-                risk_tier = "MINIMAL"
-                action_advice = "Zero upstream callers detected in graph. Safe to refactor."
-
-            dep_sample = ", ".join(dependents) if dependents else "None"
-            dir_sample = ", ".join(direct_list) if direct_list else "None"
-
-            output = (
-                f"<refactor_risk_assessment symbol='{clean_sym}'>\n"
-                f"  <risk_level>{risk_tier}</risk_level>\n"
-                f"  <direct_callers count='{direct_count}'>{dir_sample}</direct_callers>\n"
-                f"  <transitive_blast_radius count='{blast_radius}'>{dep_sample}</transitive_blast_radius>\n"
-                f"  <recommendation>{action_advice}</recommendation>\n"
-                f"</refactor_risk_assessment>"
-            )
-            return output
-
+        elif blast_radius >= 2:
+            risk_tier = "MEDIUM"
+            action_advice = "Moderate caller footprint. Verify direct callers before altering signature."
+        elif blast_radius == 1:
+            risk_tier = "LOW"
+            action_advice = "Isolated symbol with 1 dependent caller."
         else:
-            return (
-                f"<error>Unknown mode '{clean_mode}'. Valid modes are: "
-                f"'pillars' (PageRank), 'bottlenecks' (Betweenness), 'subsystems' (Communities), 'risk' (Blast radius).</error>"
-            )
+            risk_tier = "MINIMAL"
+            action_advice = "Zero upstream callers detected in graph. Safe to refactor."
+
+        dep_sample = ", ".join(dependents) if dependents else "None"
+        dir_sample = ", ".join(direct_list) if direct_list else "None"
+
+        return (
+            f"<refactor_risk_assessment symbol='{clean_sym}'>\n"
+            f"  <risk_level>{risk_tier}</risk_level>\n"
+            f"  <direct_callers count='{direct_count}'>{dir_sample}</direct_callers>\n"
+            f"  <transitive_blast_radius count='{blast_radius}'>{dep_sample}</transitive_blast_radius>\n"
+            f"  <recommendation>{action_advice}</recommendation>\n"
+            f"</refactor_risk_assessment>"
+        )

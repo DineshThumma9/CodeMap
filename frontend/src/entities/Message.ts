@@ -17,6 +17,26 @@ const SourceDocument = z.object({
   text: z.string(),
 });
 
+export interface ToolTrace {
+  id: string;
+  name: string;
+  args?: Record<string, any>;
+  summary?: string;
+  status: "running" | "completed" | "error";
+}
+
+const ToolTraceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  args: z.record(z.string(), z.any()).optional(),
+  summary: z.string().optional(),
+  status: z.union([
+    z.literal("running"),
+    z.literal("completed"),
+    z.literal("error"),
+  ]),
+});
+
 const Message = z.object({
   session_id: z.string(),
   message_id: z.string(),
@@ -30,6 +50,7 @@ const Message = z.object({
   isStreaming: z.boolean().optional(),
   isError: z.boolean().optional(),
   sources: z.array(SourceDocument).optional(), // Added sources field
+  tool_traces: z.array(ToolTraceSchema).optional(),
 });
 
 export type Message = z.infer<typeof Message>;
