@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, List, Optional, cast
+from typing import List, Optional
 from uuid import UUID
 
 import celery
@@ -74,7 +74,7 @@ def ingest_git_repo_task(
     _set_status(kb_id, "ready", "Ingestion complete")
     update_kb(kb_id=kb_id, status=KBStatus.READY)
 
-    cast(Any, update_session).delay(
+    update_session.delay(
         session_id=session_id, title=f"{req.owner}/{req.repo} Repo", user_id=user_id
     )
     logger.info(f"Ingestion pipeline completed for Git KB: {kb_id}")
@@ -98,9 +98,7 @@ def ingest_pdf_task(
     update_kb(kb_id=kb_id, status=KBStatus.READY)
 
     first_file = os.path.basename(file_paths[0]) if file_paths else "PDF Upload"
-    cast(Any, update_session).delay(
-        session_id=session_id, title=first_file, user_id=user_id
-    )
+    update_session.delay(session_id=session_id, title=first_file, user_id=user_id)
 
 
 @queue.task(time_limit=60, soft_time_limit=45)
@@ -141,9 +139,7 @@ def session_title_gen(query: str, session_id: str, user_id: str):
         if not cleaned:
             cleaned = "New Chat"
 
-        cast(Any, update_session).delay(
-            session_id=session_id, title=cleaned, user_id=user_id
-        )
+        update_session.delay(session_id=session_id, title=cleaned, user_id=user_id)
         return cleaned
     except Exception as e:
         logger.error(f"Error in session_title_gen: {e}")

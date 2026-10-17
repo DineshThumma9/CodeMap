@@ -2,6 +2,7 @@ import re
 from collections import defaultdict
 from typing import Any, List, Literal
 
+import tree_sitter_language_pack as tlsp
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import StructuredTool
@@ -9,7 +10,10 @@ from langchain_falkordb import FalkorDBGraph
 from langchain_falkordb import FalkorDBQAChain as GraphCypherQAChain
 from langchain_groq import ChatGroq as Groq
 from loguru import logger
+from pydantic import SecretStr
 from qdrant_client.http import models
+from tree_sitter import Parser
+from tree_sitter_language_pack import detect_language_from_path
 
 from src.config.settings import settings
 from src.db.vectordb import get_qdrant
@@ -55,6 +59,151 @@ def to_dict(result) -> List[dict]:
     return [dict(zip(headers, row)) for row in result.result_set]
 
 
+def _extract_symbol_via_ast(
+    full_text: str, symbol: str, file_path: str = ""
+) -> str | None:
+    """Uses Tree-sitter AST to extract compiler-accurate symbol nodes (handles JSX, TypeScript, arrow functions, nested scopes)."""
+    lang_name = detect_language_from_path(file_path) if file_path else None
+    if not lang_name:
+        return None
+
+    try:
+        lang_obj = tlsp.get_language(lang_name)
+        parser = Parser(lang_obj)
+        encoded = full_text.encode("utf-8")
+        tree = parser.parse(encoded)
+    except Exception as e:
+        logger.debug(
+            f"[Tree-sitter AST] Could not parse with language '{lang_name}': {e}"
+        )
+        return None
+
+    clean_sym = symbol.strip()
+
+    def find_node(node, name):
+        # 1. Standard function/method/class definitions
+        if node.type in (
+            "function_declaration",
+            "method_definition",
+            "class_declaration",
+            "function_definition",
+            "class_definition",
+        ):
+            name_node = node.child_by_field_name("name")
+            if name_node and name_node.text.decode("utf-8") == name:
+                # Include parent export or decorator if present
+                if node.parent and node.parent.type in (
+                    "export_statement",
+                    "decorated_definition",
+                ):
+                    return node.parent
+                return node
+
+        # 2. Variable declarators: const MyComp = () => ... or export const handler = ...
+        if node.type == "variable_declarator":
+            name_node = node.child_by_field_name("name")
+            if name_node and name_node.text.decode("utf-8") == name:
+                p = node.parent
+                if p and p.parent and p.parent.type == "export_statement":
+                    return p.parent
+                return p if p else node
+
+        for child in node.children:
+            res = find_node(child, name)
+            if res:
+                return res
+        return None
+
+    node = find_node(tree.root_node, clean_sym)
+    if node:
+        extracted = encoded[node.start_byte : node.end_byte].decode("utf-8")
+        # Validate that AST node captured substantive code (not an empty header or error stub)
+        if len(extracted.splitlines()) > 2 or (
+            node.type in ("variable_declarator", "lexical_declaration")
+            and ";" in extracted
+        ):
+            return extracted
+
+    return None
+
+
+def _extract_symbol_via_lexical(full_text: str, symbol: str) -> str | None:
+    """Fallback lexical extractor using scope and indentation boundaries."""
+    clean_sym = symbol.strip()
+    if not clean_sym:
+        return None
+
+    patterns = [
+        rf"^[ \t]*(?:async\s+def|def|class)\s+{re.escape(clean_sym)}\b",
+        rf"^[ \t]*(?:export\s+)?(?:async\s+)?function\s+{re.escape(clean_sym)}\b",
+        rf"^[ \t]*(?:export\s+)?(?:const|let|var)\s+{re.escape(clean_sym)}\s*=",
+        rf"^[ \t]*(?:public|private|protected|static|\s)*(?:class|interface|enum|record)\s+{re.escape(clean_sym)}\b",
+        rf"^[ \t]*(?:fn|func)\s+{re.escape(clean_sym)}\b",
+        rf"^[ \t]*.*\b{re.escape(clean_sym)}\s*\(",
+    ]
+
+    start_line_idx = -1
+    lines = full_text.splitlines()
+    for pat in patterns:
+        for idx, line in enumerate(lines):
+            if re.search(pat, line):
+                start_line_idx = idx
+                break
+        if start_line_idx != -1:
+            break
+
+    if start_line_idx == -1:
+        return None
+
+    has_braces = any(
+        "{" in l for l in lines[start_line_idx : min(len(lines), start_line_idx + 10)]
+    )
+    def_line = lines[start_line_idx]
+    base_indent = len(def_line) - len(def_line.lstrip())
+    extracted = [def_line]
+
+    if has_braces:
+        brace_count = def_line.count("{") - def_line.count("}")
+        opened = "{" in def_line
+        for line in lines[start_line_idx + 1 :]:
+            extracted.append(line)
+            brace_count += line.count("{") - line.count("}")
+            if "{" in line:
+                opened = True
+            if opened and brace_count <= 0:
+                break
+    else:
+        # Indentation-based languages (Python)
+        for line in lines[start_line_idx + 1 :]:
+            stripped = line.strip()
+            if not stripped:
+                extracted.append(line)
+                continue
+            line_indent = len(line) - len(line.lstrip())
+            if line_indent <= base_indent:
+                if re.match(r"^(?:def\s|async\s+def\s|class\s|@)", stripped):
+                    break
+            extracted.append(line)
+
+    while extracted and not extracted[-1].strip():
+        extracted.pop()
+
+    return "\n".join(extracted)
+
+
+def _extract_symbol_from_code(
+    full_text: str, symbol: str, file_path: str = ""
+) -> str | None:
+    """Hybrid symbol extractor: attempts Tree-sitter AST extraction first, falling back to lexical scope."""
+    # 1. Compiler-grade Tree-sitter AST (handles TSX, React, JSX, nested arrow functions, types)
+    ast_extracted = _extract_symbol_via_ast(full_text, symbol, file_path)
+    if ast_extracted:
+        return ast_extracted
+
+    # 2. Lexical scope & indentation fallback (handles Python chunk-join artifacts or unparseable files)
+    return _extract_symbol_via_lexical(full_text, symbol)
+
+
 class CodeTools:
     def __init__(
         self,
@@ -71,10 +220,13 @@ class CodeTools:
         self.graph_obj = graph_obj
         self.async_falkordb: Any = async_falkordb
         self.llm = llm
+        self.tools: list[Any] = []
         self.cypher_chain = None
         if self.graph_obj:
             self.cypher_chain = GraphCypherQAChain.from_llm(
-                llm=Groq(model=settings.cypher_llm, api_key=settings.groq_api_key),
+                llm=Groq(
+                    model=settings.cypher_llm, api_key=SecretStr(settings.groq_api_key)
+                ),
                 graph=self.graph_obj,
                 cypher_prompt=PromptTemplate(
                     template=CYPHER_GENERATION_TEMPLATE,
@@ -101,36 +253,36 @@ class CodeTools:
                 coroutine=instance.get_project_context,
                 name="get_project_context",
                 description=(
-                    "Returns the project README, high-level overview, and the complete file hierarchy. "
-                    "Use this as your very first step when exploring a new codebase to orient yourself."
+                    "Returns the project README, architectural overview, and file tree. "
+                    "Use this when starting an analysis of a repository or when asked broad questions "
+                    "about how the system works or its high-level design."
                 ),
             ),
             StructuredTool.from_function(
                 coroutine=instance.explore_codebase,
                 name="explore_codebase",
                 description=(
-                    "Explore the contents of a directory or a specific file to see its structure. "
-                    "Use this to see what is inside a folder or to list the classes and functions in a file. "
-                    "Accepts a 'limit' parameter to control the maximum number of files returned (default 20, max 50)."
+                    "Explore the contents of a directory or inspect symbol outlines in a file. "
+                    "Pass a directory path (e.g. 'backend/src/service') to list files and subdirectories, "
+                    "or a file path to view its declared classes and functions."
                 ),
             ),
             StructuredTool.from_function(
                 coroutine=instance.search_syntax,
                 name="search_syntax",
                 description=(
-                    "Instantly searches for exact function names, class names, or file paths. "
-                    "Use this FIRST to locate where a symbol is defined before trying to read the code. "
-                    "Accepts a 'limit' parameter to control the maximum number of matches returned (default 15, max 50)."
+                    "Searches for EXACT declared function names, class names, or file names in the code graph. "
+                    "DO NOT pass natural language phrases here (e.g. do NOT search for 'how does auth work'). "
+                    "Only pass specific code identifier keywords (e.g. 'validate_token', 'process_payment', 'User')."
                 ),
             ),
             StructuredTool.from_function(
                 coroutine=instance.read_code,
                 name="read_code",
                 description=(
-                    "CRITICAL: DO NOT use this tool to read an entire file without a symbol unless you know the file is under 50 lines. "
-                    "You MUST use 'explore_codebase' first to find the exact class or function name, "
-                    "and then pass that exact name into the 'symbol' parameter. "
-                    "If you omit the symbol, the file WILL be heavily truncated and you will fail your task."
+                    "Reads the source code of a file or a specific symbol (class or function). "
+                    "Provide 'path' (file path) and optionally 'symbol' (function or class name to extract just that definition). "
+                    "Omit 'symbol' to read the full file."
                 ),
             ),
             StructuredTool.from_function(
@@ -165,18 +317,17 @@ class CodeTools:
                 coroutine=instance.search_code,
                 name="search_code",
                 description=(
-                    "Semantically searches the codebase chunks for a concept, pattern, "
-                    "or piece of logic. Use when you need to find code by meaning rather "
-                    "than exact name — e.g. 'authentication middleware', 'retry logic'."
+                    "Semantically searches code chunks and comments for concepts, features, or logic by meaning. "
+                    "Best tool for conceptual, architectural, or behavioral queries (e.g. 'authentication flow', 'caching strategy', 'error handling')."
                 ),
             ),
             StructuredTool.from_function(
                 coroutine=instance.ask_architecture,
                 name="ask_architecture",
                 description=(
-                    "Answers complex architecture questions using natural language — "
-                    "file dependencies, module structure, call chains. Use when standard "
-                    "tools would take multiple hops or consume too many tokens."
+                    "Answers complex architecture questions using natural language Cypher queries — "
+                    "cross-module dependencies, topological structure, dead code, or custom graph algorithms. "
+                    "Use when standard tools would require too many manual hops."
                 ),
             ),
         ]
@@ -489,10 +640,13 @@ class CodeTools:
                 ),
                 models.FieldCondition(
                     key="metadata.kb_id",
-                    match=models.MatchValue(value=self.falkordb_ns),
+                    match=models.MatchValue(value=self.falkordb_ns or ""),
                 ),
             ]
         )
+
+        if not self.vector_db:
+            return f"<error>Vector database not initialized for '{actual}'.</error>"
 
         records, _ = await q_client.scroll(
             collection_name=self.vector_db.collection_name,
@@ -514,41 +668,66 @@ class CodeTools:
                 )
             return f"<error>No content found for '{actual}'.</error>"
 
+        sorted_records = sorted(
+            records,
+            key=lambda r: (r.payload or {}).get("metadata", {}).get("start_byte") or 0,
+        )
+        full_content = "\n".join(
+            (r.payload or {}).get("page_content", "") for r in sorted_records
+        )
+
         if symbol:
             symbol_pattern = symbol.strip()
-            records = [
-                r
-                for r in records
-                if symbol_pattern in r.payload.get("page_content", "")
-            ]
-            if not records:
+            extracted_code = _extract_symbol_from_code(
+                full_content, symbol_pattern, file_path=actual
+            )
+            if extracted_code:
                 return (
-                    f"<error>No code found for '{symbol}' in '{actual}'. "
-                    "Try explore_codebase to confirm the symbol name.</error>"
+                    f"<code_content file='{actual}' symbol='{symbol_pattern}'>\n"
+                    f"<![CDATA[\n{extracted_code}\n]]>\n"
+                    f"</code_content>"
                 )
-            title = f"<code_content file='{actual}' symbol='{symbol}'>\n"
-        else:
-            title = f"<code_content file='{actual}'>\n"
 
-        sorted_records = sorted(
-            records, key=lambda r: r.payload.get("metadata", {}).get("start_byte") or 0
-        )
+            # Fallback: locate chunk containing symbol and include surrounding context
+            matching_indices = [
+                i
+                for i, r in enumerate(sorted_records)
+                if symbol_pattern in (r.payload or {}).get("page_content", "")
+            ]
+            if matching_indices:
+                min_idx = max(0, min(matching_indices))
+                max_idx = min(len(sorted_records), max(matching_indices) + 2)
+                fallback_content = "\n".join(
+                    (r.payload or {}).get("page_content", "")
+                    for r in sorted_records[min_idx:max_idx]
+                )
+                return (
+                    f"<code_content file='{actual}' symbol='{symbol_pattern}'>\n"
+                    f"<![CDATA[\n{fallback_content}\n]]>\n"
+                    f"</code_content>"
+                )
 
-        if not symbol and len(sorted_records) > 10:
-            raw_content = "\n".join(
-                r.payload.get("page_content", "") for r in sorted_records[:10]
-            )
             return (
-                title
-                + f"<![CDATA[\n{raw_content}\n]]>"
-                + "\n\n<!-- WARNING: File truncated due to context bloat. "
-                "Use the 'symbol' parameter in read_code to extract specific classes or functions. -->\n</code_content>"
+                f"<error>No code found for '{symbol}' in '{actual}'. "
+                "Try explore_codebase to confirm the symbol name.</error>"
             )
 
-        raw_content = "\n".join(
-            r.payload.get("page_content", "") for r in sorted_records
+        # Whole file read
+        if len(full_content) <= 35000:
+            return (
+                f"<code_content file='{actual}'>\n"
+                f"<![CDATA[\n{full_content}\n]]>\n"
+                f"</code_content>"
+            )
+
+        truncated = full_content[:35000]
+        return (
+            f"<code_content file='{actual}'>\n"
+            f"<![CDATA[\n{truncated}\n]]>\n\n"
+            f"<!-- NOTE: File truncated at 35,000 characters (total {len(full_content)} chars). "
+            f"Use 'symbol' parameter in read_code to extract specific classes or functions. -->\n"
+            f"</code_content>"
         )
-        return f"{title}<![CDATA[\n{raw_content}\n]]>\n</code_content>"
 
     async def trace_call_graph(
         self,
@@ -623,7 +802,7 @@ class CodeTools:
                        target.id AS id,
                        coalesce(target.kind, "Function") AS kind,
                        1 AS hops
-                ORDER BY name ASCyes 
+                ORDER BY name ASC
                 LIMIT 40
                 """
             else:
@@ -712,7 +891,7 @@ class CodeTools:
 
     async def search_code(self, query: str) -> str:
         """Semantic search over all indexed code chunks."""
-        if not self._require_vector():
+        if not self.vector_db:
             return "<error>No knowledge base is currently loaded.</error>"
         if not query or not query.strip():
             return "<error>query must not be empty.</error>"

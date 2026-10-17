@@ -6,5 +6,8 @@
     "."
   ],
   "venvPath": ".",
-  "venv": ".venv"
+  "venv": ".venv",
+  "exclude": [
+    "src/service/pipelines/code/scip/scip_pb2.py"
+  ]
 }

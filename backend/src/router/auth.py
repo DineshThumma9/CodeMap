@@ -93,10 +93,11 @@ async def logout(
         )
         access_jti = payload.get("jti")
         exp = payload.get("exp")
-        now = datetime.datetime.now(datetime.timezone.utc).timestamp()
-        ttl = int(exp - now)
-        if ttl > 0:
-            await aredis.setex(f"blacklist:{access_jti}", ttl, "1")
+        if access_jti and isinstance(exp, (int, float)):
+            now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            ttl = int(exp - now)
+            if ttl > 0:
+                await aredis.setex(f"blacklist:{access_jti}", ttl, "1")
         refresh_payload = jwt.decode(
             refresh, settings.secret_key, algorithms=[settings.algorithm]
         )

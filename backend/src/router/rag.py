@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import Session, select
+from sqlmodel import select
 
 from src.db.redisdb import aredis as redis_client
 
@@ -163,9 +163,9 @@ async def get_rag(
 
 
 @router.post("/tree")
-async def get_tree(reques: GitSpec):
-    logger.info(f"Directory structure request received: {reques}")
-    tree = await CodeUtils(reques).get_dir_struct()
+async def get_tree(req: GitSpec):
+    logger.info(f"Directory structure request received: {req}")
+    tree = await CodeUtils(req).get_dir_struct()
     return tree
 
 

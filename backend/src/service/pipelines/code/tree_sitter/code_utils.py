@@ -1,10 +1,12 @@
+from typing import Any
+
 import httpx
 from fastapi import HTTPException
 from loguru import logger
 
-from .....config.settings import settings
-from .....models.schema import GitRequest
-from .....service.constants import ALWAYS_SKIP, SKIP_DIRS, SKIP_EXTENSIONS
+from src.config.settings import settings
+from src.models.schema import GitRequest, GitSpec
+from src.service.constants import ALWAYS_SKIP, SKIP_DIRS, SKIP_EXTENSIONS
 
 
 class RepoTooLargeError(Exception):
@@ -16,7 +18,7 @@ class CodeUtils:
 
     GITHUB_API = "https://api.github.com"
 
-    def __init__(self, req: GitRequest):
+    def __init__(self, req: GitRequest | GitSpec):
         self.req = req
         self.token = req.token or settings.github_token
         self._headers = {"Accept": "application/vnd.github+json"}
@@ -47,21 +49,17 @@ class CodeUtils:
         """Returns True if the file passes all inclusion/exclusion filters on self.req."""
         if self._is_skipped(path):
             return False
-        if self.req.file_extension_include and not any(
-            path.endswith(ext) for ext in self.req.file_extension_include
-        ):
+        file_ext_inc = getattr(self.req, "file_extension_include", None)
+        if file_ext_inc and not any(path.endswith(ext) for ext in file_ext_inc):
             return False
-        if self.req.file_extension_exclude and any(
-            path.endswith(ext) for ext in self.req.file_extension_exclude
-        ):
+        file_ext_exc = getattr(self.req, "file_extension_exclude", None)
+        if file_ext_exc and any(path.endswith(ext) for ext in file_ext_exc):
             return False
-        if self.req.dir_exclude and any(
-            path.startswith(d) or f"/{d}" in path for d in self.req.dir_exclude
-        ):
+        dir_exc = getattr(self.req, "dir_exclude", None)
+        if dir_exc and any(path.startswith(d) or f"/{d}" in path for d in dir_exc):
             return False
-        if self.req.dir_include and not any(
-            path.startswith(d) or f"/{d}" in path for d in self.req.dir_include
-        ):
+        dir_inc = getattr(self.req, "dir_include", None)
+        if dir_inc and not any(path.startswith(d) or f"/{d}" in path for d in dir_inc):
             return False
         return True
 
@@ -177,10 +175,10 @@ class CodeUtils:
                 f"over the {settings.max_size_processable_mb} MB limit."
             )
 
-    def build_tree(self, tree_lis: list) -> list:
+    def build_tree(self, tree_lis: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert a flat GitHub tree list into a nested directory structure."""
-        root = {"name": "/", "type": "tree", "children": []}
-        path_map = {"/": root}
+        root: dict[str, Any] = {"name": "/", "type": "tree", "children": []}
+        path_map: dict[str, dict[str, Any]] = {"/": root}
 
         for item in tree_lis:
             parts = item["path"].split("/")
@@ -190,7 +188,7 @@ class CodeUtils:
                     parent_path = "/".join(parts[: i - 1]) or "/"
                     parent = path_map[parent_path]
                     node_type = "tree" if i < len(parts) else item["type"]
-                    node = {
+                    node: dict[str, Any] = {
                         "name": parts[i - 1],
                         "path": sub_path,
                         "type": node_type,
@@ -200,7 +198,9 @@ class CodeUtils:
                         node["sha"] = item.get("sha")
                         node["size"] = item.get("size")
 
-                    parent["children"].append(node)
+                    children = parent.get("children")
+                    if isinstance(children, list):
+                        children.append(node)
                     path_map[sub_path] = node
 
         return root["children"]

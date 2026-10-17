@@ -45,7 +45,8 @@ class AsyncLRUCache:
         try:
             loop = asyncio.get_running_loop()
             if hasattr(client, "close"):
-                loop.create_task(client.close())
+                close_fn = getattr(client, "close")
+                loop.create_task(close_fn())
         except Exception as e:
             logger.error(f"Error scheduling MCP client closure: {e}")
 
@@ -95,7 +96,7 @@ class MCPService:
                         continue
                     # create a simple server name
                     server_name = f"mcp_server_{i}"
-                    server_cfg = {
+                    server_cfg: dict[str, Any] = {
                         "transport": config.type,
                         "url": config.server_url,
                     }

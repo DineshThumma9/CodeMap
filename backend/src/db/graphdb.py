@@ -21,14 +21,8 @@ def init_graph(force_reconnect: bool = False) -> FalkorDB:
 
 
 def get_graph(graph_id: Optional[Union[UUID, str]] = None):
-    global _sync_driver
-    if _sync_driver is None:
-        init_graph()
-    return (
-        _sync_driver.select_graph(str(graph_id))
-        if graph_id is not None
-        else _sync_driver
-    )
+    driver = init_graph()
+    return driver.select_graph(str(graph_id)) if graph_id is not None else driver
 
 
 def init_async_graph(force_reconnect: bool = False) -> AsyncFalkorDB:
@@ -39,14 +33,8 @@ def init_async_graph(force_reconnect: bool = False) -> AsyncFalkorDB:
 
 
 def get_async_graph(graph_id: Optional[Union[UUID, str]] = None):
-    global _async_driver
-    if _async_driver is None:
-        init_async_graph()
-    return (
-        _async_driver.select_graph(str(graph_id))
-        if graph_id is not None
-        else _async_driver
-    )
+    driver = init_async_graph()
+    return driver.select_graph(str(graph_id)) if graph_id is not None else driver
 
 
 def get_langchain_graph(

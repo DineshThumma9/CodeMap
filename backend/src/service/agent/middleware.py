@@ -8,6 +8,7 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
 from langchain_groq import ChatGroq
 from loguru import logger
+from pydantic import SecretStr
 
 from src.config.settings import settings
 from src.models.enums import ThinkingLevel
@@ -24,7 +25,7 @@ GRAPH_TOOL_NAMES = {
 }
 
 
-@wrap_tool_call
+@wrap_tool_call  # pyright: ignore[reportCallIssue, reportArgumentType]
 async def handle_tool_errors(request, handler):
     tool_call = getattr(request, "tool_call", {}) or {}
     tool_name = tool_call.get("name", "unknown")
@@ -50,6 +51,9 @@ async def handle_tool_errors(request, handler):
         response = await handler(request)
         if is_graph_tool:
             logger.info(f"✅ [GRAPH TOOL FINISHED] '{tool_name}' executed successfully")
+        else:
+            resp_str = getattr(response, "content", str(response))
+            logger.info(f"✅ [TOOL FINISHED] '{tool_name}' returned: {resp_str[:300]}")
         return response
     except Exception as error:
         if is_graph_tool:
@@ -136,15 +140,19 @@ class SanitizeMessagesMiddleware(AgentMiddleware):
 def middleware_setup(
     thinking_level: ThinkingLevel | str | None = ThinkingLevel.MEDIUM,
 ):
-    if not isinstance(thinking_level, ThinkingLevel):
+    if isinstance(thinking_level, str):
         try:
             thinking_level = ThinkingLevel[thinking_level.upper()]
-        except (KeyError, AttributeError):
+        except KeyError:
             thinking_level = ThinkingLevel.MEDIUM
+    elif not isinstance(thinking_level, ThinkingLevel):
+        thinking_level = ThinkingLevel.MEDIUM
 
     thinking_config = thinking_level.value
     summarization = SummarizationMiddleware(
-        model=ChatGroq(model=settings.summarization_llm, api_key=settings.groq_api_key),
+        model=ChatGroq(
+            model=settings.summarization_llm, api_key=SecretStr(settings.groq_api_key)
+        ),
         trigger=[
             ("messages", thinking_config.message_limit),
             ("tokens", thinking_config.token_limit),

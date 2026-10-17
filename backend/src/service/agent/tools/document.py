@@ -44,7 +44,7 @@ class DocumentTools:
 
     async def search_documents(self, query: str) -> str:
         """Semantic search over uploaded documents."""
-        if not self._require_vector():
+        if not self.vector_db:
             return "<error>No document knowledge base is currently loaded.</error>"
         if not query:
             return "<error>Please provide a search query.</error>"

@@ -1,6 +1,7 @@
 from langchain_nomic import NomicEmbeddings
 from langchain_qdrant import QdrantVectorStore, RetrievalMode
 from langchain_voyageai import VoyageAIEmbeddings
+from pydantic import SecretStr
 from qdrant_client import AsyncQdrantClient, QdrantClient, models
 from qdrant_client.models import (
     FieldCondition,
@@ -37,7 +38,7 @@ def get_code_embeddings():
     if _code_embeddings is None:
         _code_embeddings = VoyageAIEmbeddings(
             model=settings.voyage_embedding_model,
-            api_key=settings.voyage_api_key,
+            api_key=SecretStr(settings.voyage_api_key),
             batch_size=1000,
         )
     return _code_embeddings
@@ -67,7 +68,7 @@ def _setup_collections(client: QdrantClient):
                     collection_name=name,
                     field_name="metadata.kb_id",
                     field_schema=models.KeywordIndexParams(
-                        type=models.PayloadSchemaType.KEYWORD,
+                        type=models.KeywordIndexType.KEYWORD,
                         is_tenant=True,  # Valid: Tells Qdrant to partition data by this key
                     ),
                 )
@@ -77,7 +78,7 @@ def _setup_collections(client: QdrantClient):
                     collection_name=name,
                     field_name="metadata.file_path",
                     field_schema=models.KeywordIndexParams(
-                        type=models.PayloadSchemaType.KEYWORD
+                        type=models.KeywordIndexType.KEYWORD
                     ),
                 )
 
@@ -91,6 +92,10 @@ async def init_qdrant():
 
 
 def get_qdrant() -> AsyncQdrantClient:
+    if _client is None:
+        raise RuntimeError(
+            "Qdrant client not initialized. Ensure init_qdrant() was called."
+        )
     return _client
 
 
@@ -121,7 +126,7 @@ vector_db = LazyVectorDB()
 def get_user_vector_db(ns: str, source_type: str | None = None):
     collection = (
         COLLECTION
-        if source_type and str(source_type).lower() in ["pdf", "url", "notes"]
+        if source_type and source_type.lower() in ["pdf", "url", "notes"]
         else COLLECTION_CODE
     )
     if collection == COLLECTION_CODE:

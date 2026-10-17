@@ -27,29 +27,29 @@ class KBSourceType(str, Enum):
 
 class ThinkingLevel(Enum):
     HIGH = ThinkingConfig(
-        tool_run_limit=20,
-        tool_thread_limit=50,
-        model_run_limit=20,
-        model_thread_limit=50,
-        token_limit=16000,
-        keep_message_limit=15,
-        message_limit=30,
+        tool_run_limit=25,
+        tool_thread_limit=80,
+        model_run_limit=25,
+        model_thread_limit=80,
+        token_limit=48000,
+        keep_message_limit=30,
+        message_limit=60,
     )
     MEDIUM = ThinkingConfig(
         tool_run_limit=15,
-        tool_thread_limit=50,
+        tool_thread_limit=60,
         model_run_limit=15,
-        model_thread_limit=50,
-        token_limit=8000,
-        keep_message_limit=10,
-        message_limit=20,
+        model_thread_limit=60,
+        token_limit=32000,
+        keep_message_limit=20,
+        message_limit=40,
     )
     LOW = ThinkingConfig(
         tool_run_limit=10,
         tool_thread_limit=50,
         model_run_limit=10,
         model_thread_limit=50,
-        token_limit=6000,
-        keep_message_limit=8,
-        message_limit=10,
+        token_limit=20000,
+        keep_message_limit=15,
+        message_limit=25,
     )

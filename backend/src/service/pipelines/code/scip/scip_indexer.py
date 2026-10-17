@@ -109,7 +109,7 @@ def detect_project_lang(path: Path, scip_languages: List[str]) -> Optional[str]:
         return None
 
     # Return the most frequent language
-    return max(counts, key=counts.get)
+    return max(counts, key=lambda k: counts[k])
 
 
 class ScipIndexer:
@@ -230,7 +230,7 @@ class ScipIndexer:
                         "-c",
                         "dart pub global activate scip_dart && dart pub get && dart pub global run scip_dart ./",
                     ]
-                elif lang in ("cpp", "c"):
+                elif lang in ("cpp", "c") and internal_cmd:
                     # sourcegraph/scip-clang image has scip-clang as its entrypoint;
                     # strip the binary name (first element) since it's the entrypoint.
                     # Map host project + output mount paths into the container.
@@ -276,7 +276,8 @@ class ScipIndexer:
                         new_internal.append(s)
                     internal_cmd = new_internal
 
-                docker_cmd.extend(internal_cmd)
+                if internal_cmd:
+                    docker_cmd.extend(internal_cmd)
 
                 logger.info(f"Running Docker command: {' '.join(docker_cmd)}")
                 result = subprocess.run(
@@ -520,7 +521,7 @@ class ScipIndexParser:
             from . import scip_pb2  # type: ignore
         except Exception as e:
             logger.error(f"Failed to import scip2: {e}")
-            return {}
+            return {"files": {}, "symbol_table": {}}
 
         try:
             with open(index_scip_path, "rb") as f:
@@ -528,7 +529,7 @@ class ScipIndexParser:
                 index.ParseFromString(f.read())
         except Exception as e:
             logger.error(f"Failed to parse SCIP index at {index_scip_path}: {e}")
-            return {}
+            return {"files": {}, "symbol_table": {}}
 
         from collections import defaultdict
 
@@ -599,8 +600,8 @@ class ScipIndexParser:
 
         for sym, info in symbol_def_table.items():
             if info.kind == 0:
-                file_path = info.file_path
-                line_num = info.line
+                file_path = info.file_path or ""
+                line_num = info.line or 0
                 src_lines = doc_source_lines[file_path]
                 ck = self._infer_cxx_zero_kind(sym, line_num, src_lines)
                 if ck:
@@ -646,10 +647,13 @@ class ScipIndexParser:
             # }
 
             from src.models.code_schema import (
+                ClassDef,
                 FunctionCalls,
                 FunctionDef,
                 ProcessedCode,
                 Span,
+                StructureItem,
+                Variables,
             )
 
             file_data = ProcessedCode()
@@ -702,7 +706,7 @@ class ScipIndexParser:
                                 kind = 7
 
                     name = self._name_from_symbol(sym)
-                    args, return_type = self._parse_signature(defn.name, kind)
+                    args, return_type = self._parse_signature(defn.name, kind or 0)
 
                     kind_str = str(kind)
                     if kind == 17:
@@ -716,37 +720,80 @@ class ScipIndexParser:
                     elif kind == 53:
                         kind_str = "trait"
 
-                    node = FunctionDef(
-                        name=name,
-                        kind=kind_str,
-                        span=defn.span or Span(start_line=line, end_line=line),
-                        doc_comment=defn.doc,
-                        is_dependency=False,
-                        args=args,
-                        return_type=return_type,
-                    )
+                    span = defn.span or Span(start_line=line, end_line=line)
+                    bases = [self._name_from_symbol(b) for b in defn.bases if b]
 
                     if kind in (26, 17):
-                        node.cyclomatic_complexity = 1
-                        file_data.functions.append(node)
+                        file_data.functions.append(
+                            FunctionDef(
+                                name=name,
+                                kind=kind_str,
+                                span=span,
+                                doc_comment=defn.doc,
+                                is_dependency=False,
+                                args=args,
+                                return_type=return_type,
+                                cyclomatic_complexity=1,
+                            )
+                        )
                     elif kind == 7:
-                        node.bases = [self._name_from_symbol(b) for b in defn.bases]
-                        file_data.classes.append(node)
+                        file_data.classes.append(
+                            ClassDef(
+                                name=name,
+                                kind=kind_str,
+                                span=span,
+                                doc_comment=defn.doc,
+                                bases=bases,
+                            )
+                        )
                     elif kind == 20 or kind == 54:  # Interface or Protocol
-                        node.bases = [self._name_from_symbol(b) for b in defn.bases]
-
-                        file_data.interfaces.append(node)
+                        file_data.interfaces.append(
+                            StructureItem(
+                                name=name,
+                                kind=kind_str,
+                                span=span,
+                                doc_comment=defn.doc,
+                                bases=bases,
+                            )
+                        )
                     elif kind == 18:  # Enum
-                        file_data.enums.append(node)
+                        file_data.enums.append(
+                            StructureItem(
+                                name=name,
+                                kind=kind_str,
+                                span=span,
+                                doc_comment=defn.doc,
+                            )
+                        )
                     elif kind == 49:  # Struct
-                        node.bases = [self._name_from_symbol(b) for b in defn.bases]
-                        file_data.structs.append(node)
+                        file_data.structs.append(
+                            StructureItem(
+                                name=name,
+                                kind=kind_str,
+                                span=span,
+                                doc_comment=defn.doc,
+                                bases=bases,
+                            )
+                        )
                     elif kind == 53:  # Trait
-                        node.bases = [self._name_from_symbol(b) for b in defn.bases]
-                        file_data.traits.append(node)
+                        file_data.traits.append(
+                            StructureItem(
+                                name=name,
+                                kind=kind_str,
+                                span=span,
+                                doc_comment=defn.doc,
+                                bases=bases,
+                            )
+                        )
                     elif kind in (61, 15):
-                        node.return_type = return_type
-                        file_data.variables.append(node)
+                        file_data.variables.append(
+                            Variables(
+                                name=name,
+                                kind=kind_str,
+                                span=span,
+                                doc=defn.doc,
+                            )
+                        )
 
                 else:  # Reference
                     if sym not in symbol_def_table:
@@ -882,7 +929,7 @@ class ScipIndexParser:
         return "unknown"
 
     def _parse_signature(
-        self, display_name: str, kind: int
+        self, display_name: str, kind: int | str = 0
     ) -> Tuple[List[str], Optional[str]]:
         import re
 

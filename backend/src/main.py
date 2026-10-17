@@ -2,6 +2,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 import sentry_sdk
 import uvicorn
@@ -36,16 +37,43 @@ from .router.setup import close_http_client
 # 1. Configuration & Global Setup
 # ---------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(BASE_DIR, "../logs")
+LOG_DIR = os.path.abspath(os.path.join(BASE_DIR, "../logs"))
 os.makedirs(LOG_DIR, exist_ok=True)
+SERVER_LOG_FILE = os.path.join(LOG_DIR, "server.log")
 
-logging.basicConfig(
-    filename=os.path.join(LOG_DIR, "app.log"),
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+
+class InterceptHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
+
+
+logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)
+
+for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+    _l = logging.getLogger(logger_name)
+    _l.handlers = [InterceptHandler()]
+    _l.propagate = False
+
+logger.add(
+    SERVER_LOG_FILE,
+    rotation="10 MB",
+    retention="10 days",
+    level="INFO",
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+    enqueue=True,
 )
-
-logger.add("logs/api.log", rotation="1 MB", retention="10 days", level="INFO")
 
 
 sentry_dsn = settings.sentry_dsn
@@ -74,6 +102,7 @@ async def lifespan(app: FastAPI):
 
     from src.models import models
 
+    assert dbs.engine is not None
     SQLModel.metadata.create_all(dbs.engine)
 
     # 2. Warm up the async connection pool so the first real request
@@ -81,6 +110,7 @@ async def lifespan(app: FastAPI):
     try:
         from sqlalchemy import text
 
+        assert dbs.async_engine is not None
         async with dbs.async_engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         logger.info("Async DB pool warmed up")
@@ -133,7 +163,10 @@ logger.info("Server application initialized")
 # 4. Exception Handlers & Rate Limiting
 # ---------------------------------------------------------
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(
+    RateLimitExceeded,
+    cast(Any, _rate_limit_exceeded_handler),
+)
 
 # ---------------------------------------------------------
 # 5. Middlewares

@@ -8,7 +8,7 @@ from sqlmodel import col, select
 
 from src.db import dbs
 from src.db.redisdb import aredis as redis_client
-from src.models.enums import KBSourceType, KBStatus
+from src.models.enums import KBSourceType, KBStatus, SenderRole
 from src.models.models import KnowledgeBase, Message
 from src.models.models import Session as DBSession
 
@@ -34,7 +34,12 @@ class ChatService:
     async def add_message(self, session_id: str, sender: str, content: str) -> Message:
         try:
             session_uuid = UUID(session_id)
-            message = Message(session_id=session_uuid, sender=sender, content=content)
+            sender_role = (
+                sender if isinstance(sender, SenderRole) else SenderRole(sender)
+            )
+            message = Message(
+                session_id=session_uuid, sender=sender_role, content=content
+            )
             self.db.add(message)
 
             from sqlalchemy import update

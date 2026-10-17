@@ -14,7 +14,7 @@ from src.models.enums import KBSourceType, KBStatus, SenderRole
 
 # --- DB (SQLModel) ---
 class User(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "users"
+    __tablename__: Any = "users"  # pyrefly: ignore[bad-override]
     userid: UUID = Field(default_factory=uuid4, primary_key=True)
     username: str = Field(index=True, unique=True)
     email: EmailStr = Field(index=True, unique=True)
@@ -33,7 +33,7 @@ class User(SQLModel, table=True):
 
 
 class Session(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "sessions"
+    __tablename__: Any = "sessions"  # pyrefly: ignore[bad-override]
     session_id: UUID = Field(
         default_factory=uuid4,
         primary_key=True,
@@ -71,7 +71,7 @@ class Session(SQLModel, table=True):
 
 
 class Message(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "messages"
+    __tablename__: Any = "messages"  # pyrefly: ignore[bad-override]
     message_id: UUID = Field(default_factory=uuid4, primary_key=True)
     session_id: UUID = Field(
         foreign_key="sessions.session_id", ondelete="CASCADE", index=True
@@ -88,14 +88,14 @@ class Message(SQLModel, table=True):
 
 
 class RefreshToken(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "refreshtoken"
+    __tablename__: Any = "refreshtoken"  # pyrefly: ignore[bad-override]
     token: str = Field(primary_key=True)
     email: EmailStr
     expiry_date: datetime
 
 
 class APIKEYS(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "api_keys"
+    __tablename__: Any = "api_keys"  # pyrefly: ignore[bad-override]
     user_id: UUID = Field(
         foreign_key="users.userid", ondelete="CASCADE", primary_key=True
     )
@@ -104,7 +104,7 @@ class APIKEYS(SQLModel, table=True):
 
 
 class UserLLMConfig(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "config"
+    __tablename__: Any = "config"  # pyrefly: ignore[bad-override]
     user_id: UUID = Field(
         foreign_key="users.userid", ondelete="CASCADE", primary_key=True
     )
@@ -113,7 +113,7 @@ class UserLLMConfig(SQLModel, table=True):
 
 
 class KnowledgeBase(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "knowledge_bases"
+    __tablename__: Any = "knowledge_bases"  # pyrefly: ignore[bad-override]
     kb_id: UUID = Field(primary_key=True)
     user_id: UUID = Field(foreign_key="users.userid", ondelete="CASCADE", index=True)
     source_type: KBSourceType
@@ -130,7 +130,7 @@ class KnowledgeBase(SQLModel, table=True):
 
 
 class UserMCPConfig(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "mcp_config"
+    __tablename__: Any = "mcp_config"  # pyrefly: ignore[bad-override]
     user_id: UUID = Field(
         foreign_key="users.userid", ondelete="CASCADE", primary_key=True
     )

@@ -35,7 +35,7 @@ const getToolCategory = (toolName: string) => {
     return {
       label: "FalkorDB Algo",
       badgeClass:
-        "text-purple-400 border-purple-500/30 bg-purple-500/10 dark:text-purple-300",
+        "bg-transparent text-purple-500 dark:text-purple-400 border-0 border-none shadow-none",
       icon: Network,
     };
   }
@@ -49,7 +49,7 @@ const getToolCategory = (toolName: string) => {
     return {
       label: "MCP Action",
       badgeClass:
-        "text-emerald-500 border-emerald-500/30 bg-emerald-500/10 dark:text-emerald-400",
+        "bg-transparent text-emerald-500 dark:text-emerald-400 border-0 border-none shadow-none",
       icon: GitBranch,
     };
   }
@@ -57,14 +57,14 @@ const getToolCategory = (toolName: string) => {
     return {
       label: "Search",
       badgeClass:
-        "text-amber-500 border-amber-500/30 bg-amber-500/10 dark:text-amber-400",
+        "bg-transparent text-amber-500 dark:text-amber-400 border-0 border-none shadow-none",
       icon: Search,
     };
   }
   return {
     label: "Code Graph",
     badgeClass:
-      "text-blue-500 border-blue-500/30 bg-blue-500/10 dark:text-blue-400",
+      "bg-transparent text-blue-500 dark:text-blue-400 border-0 border-none shadow-none",
     icon: Code2,
   };
 };
@@ -93,7 +93,7 @@ export const ToolTraceTimeline = ({
       onOpenChange={setIsOpen}
       className="my-2.5 w-full max-w-2xl"
     >
-      <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg bg-muted/60 hover:bg-muted border border-border/50 text-foreground transition-all duration-150 select-none group w-full text-left">
+      <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg bg-transparent hover:bg-muted/40 border border-border/50 text-foreground transition-all duration-150 select-none group w-full text-left">
         {hasRunning ? (
           <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
         ) : (
@@ -116,14 +116,17 @@ export const ToolTraceTimeline = ({
         <div className="flex items-center gap-1.5 ml-auto shrink-0">
           {!hasRunning && (
             <div className="hidden sm:flex items-center gap-1">
-              {tools.slice(0, 2).map((t) => (
-                <span
-                  key={t.id}
-                  className="font-mono text-[10px] text-muted-foreground bg-background/80 px-1.5 py-0.5 rounded border border-border/40"
-                >
-                  {t.name}
-                </span>
-              ))}
+              {tools.slice(0, 2).map((t) => {
+                const cat = getToolCategory(t.name);
+                return (
+                  <span
+                    key={t.id}
+                    className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${cat.badgeClass}`}
+                  >
+                    {t.name}
+                  </span>
+                );
+              })}
               {tools.length > 2 && (
                 <span className="text-[10px] text-muted-foreground">
                   +{tools.length - 2}
@@ -161,7 +164,6 @@ export const ToolTraceTimeline = ({
                 </span>
 
                 <Badge
-                  variant="outline"
                   className={`text-[10px] px-1.5 py-0 h-4 font-normal gap-1 ${category.badgeClass}`}
                 >
                   <CategoryIcon className="size-2.5" />

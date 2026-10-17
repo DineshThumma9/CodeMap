@@ -8,7 +8,7 @@ DiagnosticSeverity = Literal["error", "warning", "info"]
 ExportKind = Literal["named", "default", "re_export"]
 StructureKind = str
 DocstringFormat = str
-SymbolKind = str
+SymbolKind = str | int
 
 
 class Span(BaseModel):
@@ -115,7 +115,7 @@ class SymbolInfo(BaseModel):
     doc: Optional[str] = None
     file_path: Optional[str] = None
     line: Optional[int] = None
-    bases: List[Optional[str]] = []
+    bases: List[str] = Field(default_factory=list)
     rust_info: Optional[Dict[str, Set[str]]] = None
 
 
@@ -149,7 +149,7 @@ class ChunkContext(BaseModel):
 class FunctionDef(StructureItem):
     """A function definition extracted from source code."""
 
-    args: List[Optional[str]] = []
+    args: List[str] = Field(default_factory=list)
     is_dependency: bool = False
     return_type: Optional[str] = None
     cyclomatic_complexity: Optional[int] = None

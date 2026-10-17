@@ -15,6 +15,7 @@ from src.service.pipelines.code.languages.rust import RUST_QUERIES
 from src.service.pipelines.code.languages.scala import SCALA_QUERIES
 from src.service.pipelines.code.languages.swift import SWIFT_QUERIES
 from src.service.pipelines.code.languages.typescript import TS_QUERIES
+from src.service.pipelines.code.languages.typescriptjsx import TSX_QUERIES
 
 LANUGUAGE_GRAMMERS = {
     "c": C_QUERIES,
@@ -24,6 +25,8 @@ LANUGUAGE_GRAMMERS = {
     "rust": RUST_QUERIES,
     "python": PY_QUERIES,
     "typescript": TS_QUERIES,
+    "tsx": TSX_QUERIES,
+    "typescriptreact": TSX_QUERIES,
     "dart": DART_QUERIES,
     "php": PHP_QUERIES,
     "ruby": RUBY_QUERIES,

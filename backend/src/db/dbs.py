@@ -1,13 +1,19 @@
 from contextlib import asynccontextmanager, contextmanager
+from typing import AsyncGenerator, Generator
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from loguru import logger
 from psycopg import AsyncConnection
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import Session, sessionmaker
 
 from src.config.settings import settings
 
@@ -15,10 +21,10 @@ _pool: AsyncConnectionPool[AsyncConnection[DictRow]] | None = None
 _checkpointer: AsyncPostgresSaver | None = None
 
 
-engine = None
-async_engine = None
-SessionLocal = None
-AsyncSessionLocal = None
+engine: Engine | None = None
+async_engine: AsyncEngine | None = None
+SessionLocal: sessionmaker[Session] | None = None
+AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
 _connection_failed = False
 
 
@@ -72,8 +78,10 @@ def _init_db():
         raise SystemExit("Database connection failed")
 
 
-async def get_db():
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     _init_db()
+    if AsyncSessionLocal is None:
+        raise RuntimeError("AsyncSessionLocal is not initialized")
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -84,8 +92,10 @@ async def get_db():
 
 
 @asynccontextmanager
-async def get_async_session():
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     _init_db()
+    if AsyncSessionLocal is None:
+        raise RuntimeError("AsyncSessionLocal is not initialized")
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -95,8 +105,10 @@ async def get_async_session():
 
 
 @contextmanager
-def get_task_db():
+def get_task_db() -> Generator[Session, None, None]:
     _init_db()  # Celery workers don't go through lifespan, so init lazily here
+    if SessionLocal is None:
+        raise RuntimeError("SessionLocal is not initialized")
     db = SessionLocal()
     try:
         yield db

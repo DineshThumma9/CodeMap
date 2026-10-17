@@ -1,0 +1,4 @@
+project-includes = ["src"]
+project-excludes = ["src/service/pipelines/code/scip/scip_pb2.py"]
+search-path = ["."]
+infer-with-first-use = false
