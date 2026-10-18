@@ -26,7 +26,7 @@
 
 ## 🎥 Demo Video
 
-> 📺 **Watch the Working Demo**: [CodeMap Walkthrough Video](https://drive.google.com/file/d/17Na4SIqYuEcexcC9wgRTmF8899aPkcfr/view?usp=sharing) *(Replace with your YouTube/Loom demo link)*
+> 📺 **Watch the Working Demo**: [CodeMap Walkthrough Video](https://youtu.be/TDo_Zl3RW9c) *(Replace with your YouTube/Loom demo link)*
 
 ---
 
