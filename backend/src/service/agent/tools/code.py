@@ -573,7 +573,7 @@ class CodeTools:
                 """
                 CALL db.idx.fulltext.queryNodes('CodeNode', $query)
                 YIELD node, score
-                WITH node, score, (coalesce(node.pagerank, 0.0) + coalesce(node.betweenness, 0.0)) AS authority
+                WITH node, score, (coalesce(node.pagerank, 0.0) * log(2.0 + coalesce(node.betweenness, 0.0))) AS authority
                 RETURN node.kind AS kind, node.name AS name, node.id AS id, authority
                 ORDER BY authority DESC, score DESC LIMIT $limit
                 """,
@@ -592,7 +592,7 @@ class CodeTools:
                 MATCH (node:CodeNode)
                 WHERE toLower(node.name) CONTAINS toLower($kw)
                    OR toLower(node.id) CONTAINS toLower($kw)
-                WITH node, (coalesce(node.pagerank, 0.0) + coalesce(node.betweenness, 0.0)) AS authority
+                WITH node, (coalesce(node.pagerank, 0.0) * log(2.0 + coalesce(node.betweenness, 0.0))) AS authority
                 RETURN node.kind AS kind, node.name AS name, node.id AS id, authority
                 ORDER BY authority DESC, node.id ASC
                 LIMIT $limit

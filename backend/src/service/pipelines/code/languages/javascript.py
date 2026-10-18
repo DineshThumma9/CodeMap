@@ -64,6 +64,8 @@ JS_QUERIES = {
         (call_expression function: (member_expression property: (property_identifier) @name))
         (new_expression constructor: (identifier) @name)
         (new_expression constructor: (member_expression property: (property_identifier) @name))
+        (jsx_element open_tag: (jsx_opening_element name: (identifier) @name))
+        (jsx_self_closing_element name: (identifier) @name)
     """,
     "variables": """
         (variable_declarator name: (identifier) @name)

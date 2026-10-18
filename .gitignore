@@ -94,3 +94,5 @@ context.md
 plan.md
 .gitignore 
 gitignore 
+*.png 
+backend/scripts/

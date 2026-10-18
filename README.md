@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧠 NexusGPT
+# 🗺️ CodeMap
 
 **An Agentic RAG Platform for Deep Codebase Intelligence & Graph Reasoning**
 
@@ -14,15 +14,27 @@
 [![Caddy](https://img.shields.io/badge/Caddy-Reverse%20Proxy-1F88C0?style=flat-square&logo=caddy&logoColor=white)](https://caddyserver.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
+**🏆 Graph Hacks: Context for AI Agents (Oct 15–18, 2026)**
+* **Primary Track**: **Agents That Act on Connected Data**
+* **Secondary Track**: **Company Brain**
+
+*Submitted to [Graph Hacks](https://www.wemakedevs.org/hackathons/falkordb) by WeMakeDevs × FalkorDB*
+
 </div>
+
+---
+
+## 🎥 Demo Video
+
+> 📺 **Watch the Working Demo**: [CodeMap Walkthrough Video](https://www.youtube.com/watch?v=YOUR_DEMO_VIDEO_HERE) *(Replace with your YouTube/Loom demo link)*
 
 ---
 
 ## 📖 Overview
 
-**NexusGPT** is a production-grade agentic Codebase Intelligence platform designed to understand and act on complex software architectures. Standard code RAG pipelines treat source code like plain text — naive chunking splits functions arbitrarily, destroys lexical scoping, and blinds models to call hierarchies and dependency flows.
+**CodeMap** is a production-grade agentic Codebase Intelligence platform designed to understand and act on complex software architectures. Standard code RAG pipelines treat source code like plain text — naive chunking splits functions arbitrarily, destroys lexical scoping, and blinds models to call hierarchies and dependency flows.
 
-NexusGPT solves this by combining **AST / SCIP compiler indexing**, a **FalkorDB knowledge graph**, and **Qdrant vector retrieval** with an autonomous **LangGraph agent**:
+**CodeMap** solves this by combining **AST / SCIP compiler indexing**, a **FalkorDB knowledge graph**, and **Qdrant vector retrieval** with an autonomous **LangGraph agent**:
 
 * **Structural Graph Traversal**: Maps classes, functions, callers, callees, and modules into an isolated graph per repository.
 * **Graph Algorithms as Agent Tools**: Employs FalkorDB's native GraphBLAS algorithms (PageRank, Betweenness Centrality, WCC, Shortest Path) so the agent can trace execution paths, pinpoint single-points-of-failure, and assess refactor blast radius in sub-20ms.
@@ -91,7 +103,7 @@ NexusGPT solves this by combining **AST / SCIP compiler indexing**, a **FalkorDB
 
 ## 🧠 FalkorDB Graph Tools
 
-NexusGPT packages native FalkorDB algorithms as first-class agent tools:
+CodeMap packages native FalkorDB algorithms as first-class agent tools:
 
 ### 1. `trace_call_graph` (Directional Traversal)
 Traces upstream callers or downstream callees across multi-hop dependencies with configurable depth, returning execution paths and generating Mermaid dependency diagrams.
@@ -109,8 +121,12 @@ Combines multi-hop BFS caller reachability with PageRank scores to calculate a c
 ### 4. `search_syntax` & `get_project_context` (Structural Discovery)
 Combines RediSearch full-text indexes over symbol definitions with topological centrality (Betweenness and In-Degree) to surface architectural pillars rather than trivial utilities.
 
-### 5. Dead Code & Orphan Subgraph Detection
+### 5. `ask_architecture` (Turn Natural Language to Grpah Query Language)
+It Can be used to turn natural language queries into graph query language queries.
+Agent get instructed in prompt what can be used graph query and falkor native alogrithm such  as detection of dead code via WCC
 Leverages Weakly Connected Components (`algo.WCC`) to isolate clusters of code disconnected from application entrypoints, powering automated refactoring proposals.
+And any other combination it can 
+
 
 ---
 
@@ -142,7 +158,7 @@ Leverages Weakly Connected Components (`algo.WCC`) to isolate clusters of code d
 ## 📂 Project Structure
 
 ```
-nexusGPT/
+CodeMap/
 ├── backend/
 │   ├── src/
 │   │   ├── config/          # Pydantic application settings
@@ -186,8 +202,8 @@ nexusGPT/
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-org/nexusGPT.git
-cd nexusGPT
+git clone https://github.com/DineshThumma9/FalkorBlaze.git
+cd FalkorBlaze
 ```
 
 ### 2. Configure Environment Variables
@@ -195,7 +211,7 @@ Create your configuration file in `backend/.env.dev`:
 
 ```env
 # ── Databases ──────────────────────────────────────────
-DATABASE_URL=postgresql://postgres:password@localhost:5432/nexusgpt
+DATABASE_URL=postgresql://postgres:password@localhost:5432/codemap
 REDIS_URL=redis://localhost:6379/0
 FALKORDB_URL=redis://localhost:6380
 FALKORDB_USER=falkordb
@@ -256,6 +272,106 @@ Navigate to **`http://localhost:5173`** in your browser.
 * **Context Control**: MCP tools can be toggled on-demand per server from the UI to protect the LLM context window from token saturation.
 * **Strict Physical Multitenancy**: Each repository is partitioned into its own named FalkorDB graph namespace (`kb_id`), preventing cross-repository leakage.
 * **Rate Limiting**: Endpoint abuse protection enforced via SlowAPI.
+
+---
+
+## 🗺️ FalkorDB Graph Data Model
+
+Each ingested repository gets its own isolated FalkorDB graph (namespace = `kb_id`). The schema is:
+
+### Nodes
+
+```cypher
+(:CodeNode {
+  id: String,          -- Unique symbol ID (e.g. "repo/src/auth.py:validate_token")
+  name: String,        -- Symbol name (e.g. "validate_token")
+  kind: String,        -- "File" | "Class" | "Function"
+  -- GraphBLAS scores written at ingestion time:
+  pagerank: Float,     -- Authority / utility score (algo.pageRank)
+  harmonic: Float,     -- Root orchestrator / entrypoint score (algo.HarmonicCentrality)
+  betweenness: Float,  -- Bridge / chokepoint score (algo.betweenness)
+  community_id: Int,   -- Subsystem cluster (algo.labelPropagation)
+  wcc_id: Int          -- Connected component / dead-code island (algo.WCC)
+})
+```
+
+### Relationships
+
+```cypher
+(:CodeNode)-[:CONTAINS]->(:CodeNode)    -- File contains Class or Function
+(:CodeNode)-[:CALLS]->(:CodeNode)       -- Function calls another Function
+(:CodeNode)-[:IMPORTS]->(:CodeNode)     -- File imports another module/file
+(:CodeNode)-[:INHERITS]->(:CodeNode)    -- Class inherits from Base Class
+(:CodeNode)-[:HAS_METHOD]->(:CodeNode)  -- Class defines Method
+```
+
+### Key GraphBLAS Algorithms & Cypher Queries
+
+#### 1. Ingestion-Time GraphBLAS Algorithms
+```cypher
+-- 1. In-Degree Authority (PageRank)
+CALL algo.pageRank('CodeNode', 'CALLS') YIELD node, score SET node.pagerank = score;
+
+-- 2. Root Orchestrator Reachability (Harmonic Centrality)
+CALL algo.HarmonicCentrality() YIELD node, score SET node.harmonic = score;
+
+-- 3. Architectural Chokepoints (Betweenness Centrality with fixed seed)
+CALL algo.betweenness({samplingSeed: 42}) YIELD node, score SET node.betweenness = score;
+
+-- 4. Functional Domain Clusters (Community Detection / CDLP)
+CALL algo.labelPropagation() YIELD node, communityId SET node.community_id = communityId;
+
+-- 5. Disconnected Dead-Code Islands (Weakly Connected Components)
+CALL algo.WCC(null) YIELD node, componentId SET node.wcc_id = componentId;
+```
+
+#### 2. Runtime Agent Queries
+```cypher
+-- Shortest execution path between two symbols (trace_execution_path)
+MATCH (a:CodeNode), (b:CodeNode)
+WHERE a.name = $src AND b.name = $tgt
+WITH a, b, shortestPath((a)-[:CALLS*]->(b)) AS p
+RETURN [n IN nodes(p) | n.name] AS path, length(p) AS hops;
+
+-- Multi-hop blast radius & callers (assess_refactor_risk)
+MATCH (c:CodeNode)-[:CALLS*1..4]->(t:CodeNode)
+WHERE t.name = $sym
+RETURN count(DISTINCT c) AS blast_radius;
+
+-- God Object Discovery (Log-dampened PageRank & Betweenness Synergy)
+CALL db.idx.fulltext.queryNodes('CodeNode', $query) YIELD node, score
+WITH node, (coalesce(node.pagerank, 0.0) * log(2.0 + coalesce(node.betweenness, 0.0))) AS authority
+RETURN node.kind AS kind, node.name AS name, node.id AS id, authority
+ORDER BY authority DESC LIMIT $limit;
+```
+
+---
+
+## 🏗️ What Was Built During the Hackathon (Oct 15–18, 2026)
+
+The base FastAPI + React scaffold (authentication, session management, Qdrant vector search, basic chat UI) was built prior to the hackathon as a general RAG platform.
+
+**Everything below was designed and implemented during Graph Hacks (Oct 16–18, 2026):**
+
+| Component | Description |
+|-----------|-------------|
+| **FalkorDB multi-tenant graph driver** | `select_graph(kb_id)` isolation, sync + async drivers, LangChain bridge |
+| **5 GraphBLAS enrichment algorithms** | PageRank, Harmonic Centrality, Betweenness, Label Propagation, WCC — run at ingestion on every graph |
+| **8 graph-powered agent tools** | `trace_call_graph`, `trace_execution_path`, `assess_refactor_risk`, `search_syntax`, `get_project_context`, `explore_codebase`, `read_code`, `ask_architecture` |
+| **Mermaid diagram generation** | Dynamic call-graph and shortest-path visualizations rendered in chat |
+| **ToolTraceTimeline UI component** | Real-time tool execution trace visible in the frontend |
+| **MCP on-demand tool gating** | Per-server toggle in UI to prevent context bloat |
+| **Graph-enriched project context** | Agent startup fetches PageRank pillars, Harmonic entrypoints, and community clusters as context |
+
+---
+
+## 🤖 AI Tool Disclosure
+
+This project was built with the assistance of AI coding tools (Antigravity IDE / Gemini). As required by the hackathon rules:
+
+- AI tools were used for code completion, refactoring suggestions, and documentation drafting.
+- All graph data models, Cypher queries, algorithm selection, and architectural decisions were designed and reviewed by the developer.
+- The developer understands the codebase and can explain the graph model, queries, and technical decisions.
 
 ---
 

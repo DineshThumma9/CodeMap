@@ -5,5 +5,5 @@
 echo "Starting backend"
 cd backend
 set -a && source .env.dev && set +a
-uv run uvicorn src.main:app --reload
+uv run uvicorn src.main:app --reload --reload-dir src
 

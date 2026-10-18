@@ -1,6 +1,7 @@
 import concurrent
 import concurrent.futures
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -160,6 +161,33 @@ class CodePipeline:
 
         return "parse"
 
+    @staticmethod
+    def _recover_arrow_function_name(content: str, start_line: int) -> Optional[str]:
+        """Recover name for anonymous arrow functions/components assigned to const/let/var."""
+        lines = content.splitlines()
+        # Look around start_line (1-indexed) and up to 35 lines ahead for multiline props/signatures
+        idx = start_line - 1
+        snippet = " ".join(lines[max(0, idx - 2) : min(len(lines), idx + 35)])
+        pattern = re.compile(
+            r"(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?::\s*[^=]+)?\s*="
+        )
+        m = pattern.search(snippet)
+        if m:
+            after_eq = snippet[m.end() :]
+            if any(
+                marker in after_eq
+                for marker in (
+                    "=>",
+                    "function",
+                    "forwardRef",
+                    "memo",
+                    "create<",
+                    "create(",
+                )
+            ):
+                return m.group(1)
+        return None
+
     def _process_single_file(self, project_file: ProjectNode):
 
         take = self.classify_file(project_file.file_path)
@@ -210,6 +238,25 @@ class CodePipeline:
                 struct.kind if isinstance(struct, StructureItem) else struct.get("kind")
             )
 
+            if not name:
+                span = getattr(struct, "span", None) or (
+                    struct.get("span") if isinstance(struct, dict) else None
+                )
+                start_line = getattr(span, "start_line", None) or (
+                    span.get("start_line") if isinstance(span, dict) else None
+                )
+                if start_line and lang_name in (
+                    "typescript",
+                    "tsx",
+                    "javascript",
+                    "jsx",
+                    "typescriptreact",
+                    "javascriptreact",
+                ):
+                    name = self._recover_arrow_function_name(
+                        project_file.content, start_line
+                    )
+
             if not name or not kind_raw:
                 continue
 
@@ -229,6 +276,20 @@ class CodePipeline:
                         source_id=file_id, target_id=class_id, rel_type="CONTAINS"
                     )
                 )
+                bases = (
+                    struct.bases
+                    if isinstance(struct, StructureItem)
+                    else (struct.get("bases") if isinstance(struct, dict) else [])
+                ) or []
+                for b in bases:
+                    if b:
+                        result.relations.append(
+                            GraphRelation(
+                                source_id=class_id,
+                                target_id=b,
+                                rel_type="INHERITS",
+                            )
+                        )
             elif kind in ("function", "method"):
                 func_id = f"{file_id}:{name}"
                 result.entities.append(
@@ -242,11 +303,88 @@ class CodePipeline:
                     )
                 )
 
+        # Process IMPORTS
+        known_files = getattr(self, "_known_file_paths", set())
+        for imp in parsed.imports or []:
+            if not imp.source:
+                continue
+            resolved = self._resolve_import_target(file_id, imp.source, known_files)
+            if resolved and resolved != file_id:
+                result.relations.append(
+                    GraphRelation(
+                        source_id=file_id,
+                        target_id=resolved,
+                        rel_type="IMPORTS",
+                        properties={
+                            "raw": imp.source[:120],
+                        },
+                    )
+                )
+
         call_rels = self.process_function_calls(
             source_code=project_file.content, lang_name=lang_name, file_id=file_id
         )
         result.relations.extend(call_rels)
         return result
+
+    @staticmethod
+    def _resolve_import_target(
+        source_file: str, raw_import: str, known_files: set[str]
+    ) -> Optional[str]:
+        s = raw_import.strip()
+        m = re.search(r"""(?:from|import)\s+['"]([^'"]+)['"]""", s)
+        if not m:
+            m = re.match(r"^from\s+([a-zA-Z0-9_\.]+)\s+import", s)
+        if not m:
+            m = re.match(r"^import\s+([a-zA-Z0-9_\.]+)", s)
+
+        if not m:
+            return None
+        target_mod = m.group(1)
+
+        source_dir = Path(source_file).parent
+        candidates = []
+
+        if target_mod.startswith("."):
+            if target_mod.startswith("./") or target_mod.startswith("../"):
+                candidates.append(os.path.normpath(str(source_dir / target_mod)))
+            else:
+                dot_count = len(target_mod) - len(target_mod.lstrip("."))
+                mod_part = target_mod.lstrip(".").replace(".", "/")
+                rel_prefix = (
+                    "." if dot_count == 1 else "/".join([".."] * (dot_count - 1))
+                )
+                candidates.append(
+                    os.path.normpath(str(source_dir / rel_prefix / mod_part))
+                )
+        else:
+            mod_as_path = target_mod.replace(".", "/")
+            candidates.append(os.path.normpath(str(source_dir / mod_as_path)))
+            candidates.append(os.path.normpath(str(source_dir / target_mod)))
+            candidates.append(mod_as_path)
+            candidates.append(target_mod)
+
+        extensions = [
+            "",
+            ".py",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            "/__init__.py",
+            "/index.ts",
+            "/index.js",
+            "/index.tsx",
+            "/index.jsx",
+        ]
+
+        for cand in candidates:
+            for ext in extensions:
+                test_path = os.path.normpath(cand + ext)
+                if test_path in known_files:
+                    return test_path
+
+        return None
 
     def process_function_calls(self, source_code: str, lang_name: str, file_id: str):
         grammar = LANUGUAGE_GRAMMERS.get(lang_name)
@@ -334,6 +472,7 @@ class CodePipeline:
         logger.info(
             f"[extract] Parsing {len(self.project_files)} files with ThreadPoolExecutor..."
         )
+        self._known_file_paths = {f.file_path for f in self.project_files}
         max_workers = min(32, (os.cpu_count() or 1) * 2 + 1)
         errors = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -421,11 +560,28 @@ class CodePipeline:
             for e in all_entites
             if e["kind"] in ("Function", "Method", "Class")
         }
+        user_defined_node_ids = {
+            e["node_id"]
+            for e in all_entites
+            if e["kind"] in ("Function", "Method", "Class")
+        }
+
+        user_defined_classes = {
+            e["name"]: e["node_id"] for e in all_entites if e["kind"] == "Class"
+        }
 
         filtered_relations = []
         for r in all_relations:
-            if r["rel_type"] == "CALLS":
-                if r["target_id"] in user_defined_functions:
+            if r["rel_type"] == "INHERITS":
+                base_name = r["target_id"]
+                if base_name in user_defined_classes:
+                    r["target_id"] = user_defined_classes[base_name]
+                filtered_relations.append(r)
+            elif r["rel_type"] == "CALLS":
+                if (
+                    r["target_id"] in user_defined_functions
+                    or r["target_id"] in user_defined_node_ids
+                ):
                     filtered_relations.append(r)
             else:
                 filtered_relations.append(r)
@@ -459,18 +615,27 @@ class CodePipeline:
                 ON CREATE SET
                     n.name = entity.name,
                     n.kind = entity.kind
+                ON MATCH SET
+                    n.name = CASE WHEN n.name IS NULL OR n.name = '' THEN entity.name ELSE n.name END,
+                    n.kind = CASE WHEN n.kind IS NULL OR n.kind = '' THEN entity.kind ELSE n.kind END
             """,
             {"batch": all_entites},
         )
 
-        for rel_type in ["CONTAINS", "CALLS", "IMPORTS", "HAS_METHOD"]:
+        for rel_type in ["CONTAINS", "CALLS", "IMPORTS", "HAS_METHOD", "INHERITS"]:
             specific_rel = [r for r in all_relations if r["rel_type"] == rel_type]
             if specific_rel:
                 self.graph.query(
                     f"""
                     UNWIND $batch as rel
                     MERGE (source:CodeNode {{id:rel.source_id}})
+                    ON CREATE SET
+                        source.name = CASE WHEN rel.source_id CONTAINS ':' THEN split(rel.source_id, ':')[-1] ELSE rel.source_id END,
+                        source.kind = CASE WHEN '{rel_type}' = 'INHERITS' THEN 'Class' ELSE 'Function' END
                     MERGE (target:CodeNode {{id:rel.target_id}})
+                    ON CREATE SET
+                        target.name = CASE WHEN rel.target_id CONTAINS ':' THEN split(rel.target_id, ':')[-1] ELSE rel.target_id END,
+                        target.kind = CASE WHEN '{rel_type}' = 'INHERITS' THEN 'Class' ELSE 'Function' END
                     MERGE (source)-[r:{rel_type}]->(target)
                     SET r += rel.properties
                     """,
@@ -505,7 +670,7 @@ class CodePipeline:
             # 3. Betweenness Centrality (Bridge / Chokepoint score)
             self.graph.query(
                 """
-                CALL algo.betweenness() YIELD node, score
+                CALL algo.betweenness({samplingSeed: 42}) YIELD node, score
                 SET node.betweenness = score
                 """
             )

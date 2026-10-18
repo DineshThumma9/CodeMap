@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: centralgpt_app
+    container_name: codemap_app
     expose:
       - "8000"
     env_file:
@@ -27,7 +27,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: centralgpt_celery
+    container_name: codemap_celery
     env_file:
       - .env
     environment:

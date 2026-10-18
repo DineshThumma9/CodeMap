@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: centralgpt_app
+    container_name: codemap_app
     expose:
       - "8000"
     env_file:
@@ -11,29 +11,44 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - QDRANT_URL=http://qdrantdb:6333
+      - FALKORDB_URL=redis://falkordb:6379
+      - FALKORDB_USER=falkordb
       - ENV_FILE=.env
     depends_on:
       - redis
       - qdrantdb
+      - falkordb
 
   celery:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: centralgpt_celery
+    container_name: codemap_celery
     env_file:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379
       - QDRANT_URL=http://qdrantdb:6333
+      - FALKORDB_URL=redis://falkordb:6379
+      - FALKORDB_USER=falkordb
       - ENV_FILE=.env
     depends_on:
       - redis
       - qdrantdb
+      - falkordb
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp:/tmp
     command: celery -A src.service.background.worker.queue worker --loglevel=info --concurrency=2
+
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: falkordb
+    ports:
+      - "6380:6379"
+      - "3000:3000"
+    volumes:
+      - falkordb_data:/data
 
   qdrantdb:
     image: qdrant/qdrant
@@ -67,6 +82,7 @@ services:
       - web
 
 volumes:
+  falkordb_data:
   qdrant_data:
   redis_data:
   caddy_data:

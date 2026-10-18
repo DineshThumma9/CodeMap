@@ -102,7 +102,12 @@ class ExportInfo(BaseModel):
     @field_validator("kind", mode="before")
     @classmethod
     def normalize_kind(cls, v):
-        return v.lower() if isinstance(v, str) else v
+        if isinstance(v, str):
+            v_low = v.lower()
+            if v_low == "reexport":
+                return "re_export"
+            return v_low
+        return v
 
 
 class SymbolInfo(BaseModel):

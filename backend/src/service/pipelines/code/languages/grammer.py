@@ -6,6 +6,7 @@ from src.service.pipelines.code.languages.elisp import ELISP_QUERIES
 from src.service.pipelines.code.languages.go import GO_QUERIES
 from src.service.pipelines.code.languages.haskell import HASKELL_QUERIES
 from src.service.pipelines.code.languages.java import JAVA_QUERIES
+from src.service.pipelines.code.languages.javascript import JS_QUERIES
 from src.service.pipelines.code.languages.kotlin import KOTLIN_QUERIES
 from src.service.pipelines.code.languages.perl import PERL_QUERIES
 from src.service.pipelines.code.languages.php import PHP_QUERIES
@@ -22,6 +23,9 @@ LANUGUAGE_GRAMMERS = {
     "cpp": CPP_QUERIES,
     "go": GO_QUERIES,
     "java": JAVA_QUERIES,
+    "javascript": JS_QUERIES,
+    "jsx": JS_QUERIES,
+    "javascriptreact": JS_QUERIES,
     "rust": RUST_QUERIES,
     "python": PY_QUERIES,
     "typescript": TS_QUERIES,

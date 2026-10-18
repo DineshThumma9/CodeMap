@@ -22,10 +22,9 @@ from src.service.background.worker import queue
 from src.service.chat_service import update_kb
 from src.service.pipelines.code.scip.scip_pipeline import SCIPPipeline
 from src.service.pipelines.code.tree_sitter.cleanup import wipe_kb_data
-from src.service.pipelines.code.tree_sitter.code_pipeline import CodePipeline
 from src.service.pipelines.rag.documents import RAGPipeline
 
-STATUS_TTL = 240  # 4 min — well above the 3-min soft limit, covers one full ingest
+STATUS_TTL = 900  # 15 min — covers full ingestion pipeline with builds
 
 
 def _set_status(kb_id: str, status: str, detail: str) -> None:

@@ -151,8 +151,8 @@ async def lifespan(app: FastAPI):
 # 3. App Initialization
 # ---------------------------------------------------------
 app = FastAPI(
-    title="CentralGPT API",
-    description="Backend services for CentralGPT",
+    title="CodeMap API",
+    description="Backend services for CodeMap",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -226,4 +226,6 @@ async def root():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     logger.info(f"Starting server on port {port}")
-    uvicorn.run("src.main:app", port=port, reload=True, log_level="info")
+    uvicorn.run(
+        "src.main:app", port=port, reload=True, reload_dirs=["src"], log_level="info"
+    )

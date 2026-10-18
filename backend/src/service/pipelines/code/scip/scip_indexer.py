@@ -124,6 +124,23 @@ class ScipIndexer:
         Run the SCIP indexer for `lang` on `project_path`.
         Returns path to index.scip, or None if the indexer failed / is not installed.
         """
+        # Compatibility fix: older tsc bundled in scip-typescript rejects erasableSyntaxOnly (TS 5.8+)
+        if lang in ("typescript", "javascript"):
+            import re
+
+            for p in project_path.rglob("tsconfig*.json"):
+                try:
+                    text = p.read_text(encoding="utf-8")
+                    if "erasableSyntaxOnly" in text:
+                        cleaned = re.sub(
+                            r"\"erasableSyntaxOnly\"\s*:\s*(?:true|false)\s*,?",
+                            "",
+                            text,
+                        )
+                        p.write_text(cleaned, encoding="utf-8")
+                except Exception:
+                    pass
+
         binary, expected_binary, install_hint, docker_image = self._get_binary(lang)
         output_file = output_dir / "index.scip"
 
@@ -189,8 +206,25 @@ class ScipIndexer:
                     f"{output_dir.resolve()}:/out",
                     "-w",
                     "/src",
-                    docker_image,
                 ]
+                if lang == "java":
+                    m2_cache = Path.home() / ".m2"
+                    m2_cache.mkdir(parents=True, exist_ok=True)
+                    gradle_cache = Path.home() / ".gradle"
+                    gradle_cache.mkdir(parents=True, exist_ok=True)
+                    docker_cmd.extend(
+                        [
+                            "-v",
+                            f"{m2_cache.resolve()}:/root/.m2",
+                            "-v",
+                            f"{gradle_cache.resolve()}:/root/.gradle",
+                        ]
+                    )
+                elif lang == "go":
+                    go_cache = Path.home() / "go" / "pkg"
+                    if go_cache.exists():
+                        docker_cmd.extend(["-v", f"{go_cache.resolve()}:/go/pkg"])
+                docker_cmd.append(docker_image)
 
                 # Build argv using real host paths (compdb discovery, resolved compdb, C# csproj).
                 # Map those paths to /src and /out for the container after building.
@@ -306,20 +340,31 @@ class ScipIndexer:
             except Exception as e:
                 logger.error(f"Docker SCIP indexing failed: {e}")
 
-        if not binary:
+        if not binary and not docker_image:
             logger.warning(
                 f"SCIP indexer for '{lang}' not found locally or in Docker. Install with: {install_hint}"
+            )
+        elif not binary and docker_image:
+            logger.warning(
+                f"SCIP Docker indexing failed for '{lang}'. Falling back to Tree-sitter baseline."
             )
         return None
 
     def _get_binary(self, lang: str) -> Tuple[Optional[str], str, str, Optional[str]]:
+        norm_lang = {
+            "tsx": "typescript",
+            "ts": "typescript",
+            "jsx": "javascript",
+            "js": "javascript",
+            "py": "python",
+        }.get(lang.lower(), lang.lower())
         for ext, (
             mapped_lang,
             binary,
             install_hint,
             docker_image,
         ) in EXTENSION_TO_SCIP.items():
-            if mapped_lang == lang:
+            if mapped_lang == norm_lang:
                 found = shutil.which(binary)
                 return found, binary, install_hint, docker_image
         return None, lang, "unknown language", None
@@ -438,15 +483,25 @@ class ScipIndexer:
                 out,
             ]
 
-        elif lang == "typescript":
-            return [binary, "index", "--output", out]
-
-        elif lang == "javascript":
+        elif lang in ("typescript", "javascript"):
             has_tsconfig = (project_path / "tsconfig.json").exists()
             if has_tsconfig:
                 return [binary, "index", "--output", out]
-            else:
-                return [binary, "index", "--infer-tsconfig", "--output", out]
+
+            # In monorepos / fullstack repos, check if any subfolder has a tsconfig.json (e.g. frontend/tsconfig.json)
+            sub_tsconfigs = [
+                p
+                for p in project_path.glob("*/tsconfig.json")
+                if not file_path_has_ignore_dir_segment(p, project_path)
+            ]
+            if sub_tsconfigs:
+                cmd = [binary, "index"]
+                for st in sub_tsconfigs:
+                    cmd.append(str(st))
+                cmd.extend(["--output", out])
+                return cmd
+
+            return [binary, "index", "--infer-tsconfig", "--output", out]
 
         elif lang == "go":
             return [binary, "index", ".", "--output", out]
@@ -510,6 +565,20 @@ class ScipIndexer:
         return None
 
 
+def _occurrence_range(
+    occ: Any, typed: str = "typed_range", legacy: str = "range"
+) -> List[int]:
+    """Extract [start_line, start_col, end_line, end_col] or [line, start_col, end_col] supporting modern typed_range oneof."""
+    if hasattr(occ, "WhichOneof"):
+        which = occ.WhichOneof(typed)
+        if which is not None:
+            r = getattr(occ, which)
+            if which.startswith("single_line"):
+                return [r.line, r.start_character, r.end_character]
+            return [r.start_line, r.start_character, r.end_line, r.end_character]
+    return list(getattr(occ, legacy, []))
+
+
 class ScipIndexParser:
     """
     Parses an index.scip (Protobuf) file and extracts function calls,
@@ -544,13 +613,10 @@ class ScipIndexParser:
                     continue
                 role = getattr(occ, "symbol_roles", getattr(occ, "role", 0))
                 if role & 1:  # Definition
+                    r = _occurrence_range(occ)
                     symbol_def_table[occ.symbol].file_path = doc.relative_path
-                    symbol_def_table[occ.symbol].line = (
-                        occ.range[0] + 1 if occ.range else 0
-                    )
-                    symbol_def_table[occ.symbol].span = self._parse_scip_range(
-                        occ.range
-                    )
+                    symbol_def_table[occ.symbol].line = r[0] + 1 if r else 0
+                    symbol_def_table[occ.symbol].span = self._parse_scip_range(r)
 
                 # Rust trait implementation extraction from symbol string
                 # Pattern: ...impl#[StructName][TraitName]...
@@ -606,6 +672,10 @@ class ScipIndexParser:
                 ck = self._infer_cxx_zero_kind(sym, line_num, src_lines)
                 if ck:
                     info.kind = ck
+                    continue
+                tk = self._infer_ts_zero_kind(sym, line_num, src_lines)
+                if tk:
+                    info.kind = tk
                     continue
                 if sym.endswith("#"):
                     kind = 7  # Default: class
@@ -670,7 +740,8 @@ class ScipIndexParser:
                 sym = occ.symbol
                 if sym.startswith("local "):
                     continue
-                line = occ.range[0] + 1 if occ.range else 0
+                r = _occurrence_range(occ)
+                line = r[0] + 1 if r else 0
                 role = getattr(occ, "symbol_roles", getattr(occ, "role", 0))
 
                 if role & 1:  # Definition
@@ -680,6 +751,10 @@ class ScipIndexParser:
                         ck = self._infer_cxx_zero_kind(sym, line, source_lines)
                         if ck:
                             kind = ck
+                        else:
+                            tk = self._infer_ts_zero_kind(sym, line, source_lines)
+                            if tk:
+                                kind = tk
                     if kind == 0:
                         # Check method before function: methods have # in symbol
                         if sym.endswith("().") and "#" in sym:
@@ -722,6 +797,8 @@ class ScipIndexParser:
 
                     span = defn.span or Span(start_line=line, end_line=line)
                     bases = [self._name_from_symbol(b) for b in defn.bases if b]
+                    if not name:
+                        continue
 
                     if kind in (26, 17):
                         file_data.functions.append(
@@ -799,35 +876,35 @@ class ScipIndexParser:
                     if sym not in symbol_def_table:
                         continue
                     callee_info = symbol_def_table[sym]
-                    r = list(occ.range)
+                    r = _occurrence_range(occ)
+                    if not r:
+                        continue
                     ref_line_idx = r[0]
-                    if len(r) == 4:
-                        col_end = r[3]
-                    elif len(r) == 3:
-                        col_end = r[2]
-                    else:
-                        col_end = r[1] if len(r) > 1 else 0
+                    col_start = r[1]
+                    col_end = r[3] if len(r) == 4 else (r[2] if len(r) == 3 else r[1])
                     src_line = (
                         source_lines[ref_line_idx]
                         if ref_line_idx < len(source_lines)
                         else ""
                     )
-                    char_after = (
-                        src_line[col_end : col_end + 1]
-                        if col_end < len(src_line)
-                        else ""
+                    after_text = src_line[col_end:].lstrip()
+                    before_text = src_line[:col_start].rstrip()
+                    is_call = (
+                        after_text.startswith("(")
+                        or after_text.startswith("<")
+                        or before_text.endswith("<")
+                        or before_text.endswith("</")
                     )
-
-                    if char_after != "(":
+                    if not is_call:
                         continue
 
-                    ref_span = self._parse_scip_range(occ.range)
+                    ref_span = self._parse_scip_range(r)
                     caller_sym = self._find_enclosing_definition(
                         line, definition_symbols_in_doc
                     )
 
                     edge = FunctionCalls(
-                        caller=sym, calling=self._name_from_symbol(sym)
+                        caller=caller_sym or "", calling=self._name_from_symbol(sym)
                     )
                     edge.calle_file = (
                         str((project_path / callee_info.file_path).resolve())
@@ -839,11 +916,9 @@ class ScipIndexParser:
                     edge.ref_line = line
 
                     if caller_sym:
-                        edge.caller = caller_sym
                         edge.typeCall = "Function-Level"
                         file_data.functionCalls.append(edge)
                     else:
-                        edge.caller = ""
                         edge.typeCall = "Module-level"
                         file_data.functionCalls.append(edge)
 
@@ -902,10 +977,52 @@ class ScipIndexParser:
             return 7
         return 0
 
+    def _infer_ts_zero_kind(self, sym: str, line: int, source_lines: List[str]) -> int:
+        """Infer SCIP SymbolKind for TypeScript/JavaScript when scip-typescript reports 0 for arrow functions / components."""
+        if not (
+            sym.startswith("scip-typescript")
+            or "typescript" in sym
+            or "javascript" in sym
+        ):
+            return 0
+        if sym.endswith("/"):
+            return 0
+        if not (0 < line <= len(source_lines)):
+            return 0
+        snippet = " ".join(
+            s.strip()
+            for s in source_lines[line - 1 : min(line + 35, len(source_lines))]
+        )
+        import re
+
+        pattern = re.compile(
+            r"(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?::\s*[^=]+)?\s*="
+        )
+        m = pattern.search(snippet)
+        if m:
+            after_eq = snippet[m.end() :]
+            if any(
+                marker in after_eq
+                for marker in (
+                    "=>",
+                    "function",
+                    "forwardRef",
+                    "memo",
+                    "create<",
+                    "create(",
+                )
+            ):
+                return 17  # Function
+        return 0
+
     def _parse_scip_range(self, r: Any) -> Any:
         from src.models.code_schema import Span
 
-        r_list = list(r)
+        if hasattr(r, "WhichOneof"):
+            r_list = _occurrence_range(r)
+        else:
+            r_list = list(r) if r else []
+
         if len(r_list) == 4:
             return Span(
                 start_line=r_list[0] + 1,
@@ -956,7 +1073,7 @@ class ScipIndexParser:
         for occ in definition_occurrences:
             if occ.symbol.endswith("/"):
                 continue
-            er = list(getattr(occ, "enclosing_range", []))
+            er = _occurrence_range(occ, "typed_enclosing_range", "enclosing_range")
             if not er:
                 continue
             enc_start, enc_end = (

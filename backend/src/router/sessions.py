@@ -36,9 +36,6 @@ class CreateSessionRequest(BaseModel):
     session_id: Optional[str] = None
 
 
-logger.add("logs/api.log", rotation="1 MB", retention="10 days", level="INFO")
-logger.info("Server started")
-
 router = APIRouter()
 
 # -------------------------------------------------------------------------
